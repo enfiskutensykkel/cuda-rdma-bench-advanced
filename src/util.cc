@@ -7,9 +7,6 @@
 #include "util.h"
 
 
-LogUtil logger;
-
-
 /* Known SISCI error codes */
 static unsigned error_codes[] = {
     SCI_ERR_OK,
@@ -111,6 +108,18 @@ static const char* error_strings[] = {
 };
 
 
+/* Default log file */
+static FILE* logFile = stderr;
+
+
+/* Default log level */
+static uint logLevel = 0;
+
+
+/* Initial time of first log entry */
+static uint64_t logStart = 0;
+
+
 static inline size_t scierridx(sci_error_t code)
 {
     const size_t num = sizeof(error_codes) / sizeof(error_codes[0]);
@@ -155,6 +164,14 @@ uint64_t current_usecs()
 }
 
 
+void initLog(FILE* file, uint level)
+{
+    logFile = file;
+    logLevel = level;
+    logStart = current_usecs();
+}
+
+
 static inline void report(FILE* file, const char* prefix, const char* format, va_list arguments)
 {
     uint64_t ts = 0;
@@ -162,7 +179,7 @@ static inline void report(FILE* file, const char* prefix, const char* format, va
     {
         try
         {
-            ts = current_usecs() - logger.start;
+            ts = current_usecs() - logStart;
         }
         catch (...)
         {
@@ -188,82 +205,46 @@ static inline void report(FILE* file, const char* prefix, const char* format, va
 }
 
 
-LogUtil::LogUtil()
-    : level(0)
-    , start(current_usecs())
-    , error_count(0)
-    , file(stderr)
+void error(const char* format, ...)
 {
-}
-
-
-LogUtil::~LogUtil()
-{
-    if (file != stderr && error_count > 0)
-    {
-        fprintf(stderr, "Errors have occured, check log file\n");
-    }   
-
-    fflush(file);
-    fclose(file);
-}
-
-
-void LogUtil::setLogFile(const char* filename)
-{
-    if (filename != nullptr)
-    {
-        file = fopen(filename, "w");
-        if (file == nullptr)
-        {
-            throw std::runtime_error(strerror(errno));
-        }
-    }
-}
-
-
-void LogUtil::error(const char* format, ...)
-{
-    ++logger.error_count;
-
     va_list args;
     va_start(args, format);
-    report(logger.file, "ERROR", format, args);
+    report(logFile, "ERROR", format, args);
     va_end(args);
 }
 
 
-void LogUtil::warn(const char* format, ...)
+void warn(const char* format, ...)
 {
-    if (logger.level >= 1)
+    if (logLevel >= 1)
     {
         va_list args;
         va_start(args, format);
-        report(logger.file, "WARN", format, args);
+        report(logFile, "WARN", format, args);
         va_end(args);
     }
 }
 
 
-void LogUtil::info(const char* format, ...)
+void info(const char* format, ...)
 {
-    if (logger.level >= 2)
+    if (logLevel >= 2)
     {
         va_list args;
         va_start(args, format);
-        report(logger.file, "INFO", format, args);
+        report(logFile, "INFO", format, args);
         va_end(args);
     }
 }
 
 
-void LogUtil::debug(const char* format, ...)
+void debug(const char* format, ...)
 {
-    if (logger.level >= 3)
+    if (logLevel >= 3)
     {
         va_list args;
         va_start(args, format);
-        report(logger.file, "DEBUG", format, args);
+        report(logFile, "DEBUG", format, args);
         va_end(args);
     }
 }

@@ -7,11 +7,6 @@
 #include <sisci_api.h>
 
 
-/* Global log utility class */
-struct LogUtil;
-extern LogUtil logger;
-
-
 /* Get current timestamp (microseconds) */
 uint64_t current_usecs();
 
@@ -20,34 +15,23 @@ uint64_t current_usecs();
 const char* scierrstr(sci_error_t error);
 
 
-/* Log utility class definition */
-struct LogUtil
-{
-    public:
-        unsigned int level;
-        const uint64_t start;
+void initLog(FILE* file, uint level);
 
-        LogUtil();
-        ~LogUtil();
 
-        /* Report an error condition */
-        static void error(const char* format, ...);
+/* Report an error condition */
+void error(const char* format, ...);
 
-        /* Warn user about a potential problem */
-        static void warn(const char* format, ...);
 
-        /* Inform user about something */
-        static void info(const char* format, ...);
+/* Warn user about a potential problem */
+void warn(const char* format, ...);
 
-        /* Debug information */
-        static void debug(const char* format, ...);
 
-        void setLogFile(const char* filename);
+/* Inform user about something */
+void info(const char* format, ...);
 
-    private:
-        size_t error_count;
-        FILE* file;
-};
+
+/* Debug information */
+void debug(const char* format, ...);
 
 
 #endif
