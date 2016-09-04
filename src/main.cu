@@ -1,3 +1,6 @@
+#include "segment.h"
+#include "transfer.h"
+#include <memory>
 #include <vector>
 #include <map>
 #include <exception>
@@ -6,28 +9,26 @@
 #include <cstring>
 #include <getopt.h>
 #include <errno.h>
-#include <sisci_types.h>
+#include <signal.h>
 #include <sisci_api.h>
-#include "task.h"
 #include "util.h"
+#include "log.h"
+#include "server.h"
+#include "client.h"
 
-using std::vector;
-using std::map;
 using std::string;
-
-
-static const char* logFilename = nullptr;
-static uint logLevel = 0;
 
 
 static struct option options[] = 
 {
     { .name = "segment", .has_arg = true, .flag = nullptr, .val = 's' },
     { .name = "transfer", .has_arg = true, .flag = nullptr, .val = 't' },
-    { .name = "verbose", .has_arg = false, .flag = nullptr, .val = 'v' },
     { .name = "verbosity", .has_arg = true, .flag = nullptr, .val = 'v' },
     { .name = "report", .has_arg = true, .flag = nullptr, .val = 'f' },
+    { .name = "report-file", .has_arg = true, .flag = nullptr, .val = 'f' },
     { .name = "log", .has_arg = true, .flag = nullptr, .val = 'g' },
+    { .name = "logfile", .has_arg = true, .flag = nullptr, .val = 'g' },
+    { .name = "log-file", .has_arg = true, .flag = nullptr, .val = 'g' },
     { .name = "list", .has_arg = false, .flag = nullptr, .val = 'l' },
     { .name = "help", .has_arg = false, .flag = nullptr, .val = 'h' },
     { .name = nullptr, .has_arg = false, .flag = nullptr, .val = 0 }
@@ -43,16 +44,17 @@ static void giveUsage(const char* programName)
             "\nDescription\n"
             "    Benchmark the performance of GPU to GPU RDMA transfer.\n"
             "\nServer arguments\n"
-            "    --segment  <segment string>    create a local segment\n"
+            "  --segment    <segment string>    create a local segment\n"
+            "  --export     [export string]     expose a local segment\n"
             "\nClient arguments\n"
-            "    --segment  <segment string>    create a local segment\n"
-            "    --transfer <transfer string>   DMA transfer specification\n"
+            "  --segment    <segment string>    create a local segment\n"
+            "  --transfer   <transfer string>   DMA transfer specification\n"
             "\nString format\n"
             "        key1=value1,key2,key3,key4=value4,key5=value5...\n"
             "\nSegment string\n"
             "    size=<size>                    specify size of the segment (required)\n"
+            "    a=<no>                         export segment on specified adapter (required for servers)\n"
             "    ls=<id>                        local segment id [default is 0]\n"
-            "    a=<no>                         local adapter for segment [default is 0]\n"
             "    gpu=<gpu>                      specify local GPU to host buffer on [omit to host buffer in RAM]\n"
             "\nTransfer string\n"
             "    rn=<id>                        remote node id (required)\n"
@@ -64,7 +66,7 @@ static void giveUsage(const char* programName)
             "    lo=<offset>                    offset into local segment [default is 0]\n"
             "    size=<size>                    transfer size [default is the size of segment]\n"
             "    repeat=<count>                 number of times to repeat transfer [default is 1]\n"
-            "    verify                         run memcmp() instead of calculating checksum\n"
+            "    verify                         calculate checksum of transfer\n"
             "\nOther options\n"
             "  --verbosity      <level>         specify \"error\", \"warn\", \"info\" or \"debug\" log level\n"
             "  --log            <filename>      use a log file instead of stderr for logging\n"
@@ -86,7 +88,6 @@ static void listGpus()
     {
         throw string(cudaGetErrorString(err));
     }
-
 
     fprintf(stderr, "\n %2s   %-20s   %-9s   %12s   %7s   %7s   %8s   %6s   %3s   %15s\n",
             "ID", "Device name", "IO addr", "Compute mode", "Managed", "Unified", "Map hmem", "#Async", "L1", "Global mem size");
@@ -166,7 +167,6 @@ static size_t parseNumber(const string& key, const string& value)
     }
 
     size_t idx;
-
     size_t v = std::stoul(value, &idx, 0);
 
     if (idx != value.size())
@@ -178,13 +178,9 @@ static size_t parseNumber(const string& key, const string& value)
 }
 
 
-static void parseSegmentString(const char* segmentString, map<uint, Segment>& segments)
+static void parseSegmentString(const char* segmentString, SegmentMap& segments)
 {
-    Segment segment;
-    segment.adapterNo = 0;
-    segment.segmentId = 0;
-    segment.deviceId = NO_DEVICE;
-    segment.size = 0;
+    SegmentPtr segment(new Segment);
 
     // Parse segment string
     while (*segmentString != '\0')
@@ -194,19 +190,19 @@ static void parseSegmentString(const char* segmentString, map<uint, Segment>& se
 
         if (key == "size" || key == "s")
         {
-            segment.size = parseNumber(key, value);
+            segment->size = parseNumber(key, value);
         }
         else if (key == "local-segment-id" || key == "local-segment" || key == "ls")
         {
-            segment.segmentId = parseNumber(key, value);
+            segment->segmentId = parseNumber(key, value);
         }
         else if (key == "adapter" || key == "adapt" || key == "a")
         {
-            segment.adapterNo = parseNumber(key, value);
+            segment->exports[parseNumber(key, value)] = false;
         }
         else if (key == "device" || key == "gpu")
         {
-            segment.adapterNo = parseNumber(key, value);
+            segment->deviceId = parseNumber(key, value);
         }
         else if (!key.empty())
         {
@@ -215,38 +211,28 @@ static void parseSegmentString(const char* segmentString, map<uint, Segment>& se
     }
 
     // Some sanity checking
-    if (segment.size == 0)
+    if (segment->size == 0)
     {
         throw string("Local segment size must be specified");
     }
 
     // Check if segment is already specified
-    map<uint, Segment>::iterator i = segments.lower_bound(segment.segmentId);
-    if (i == segments.end() || segment.segmentId < i->first)
+    SegmentMap::iterator i = segments.lower_bound(segment->segmentId);
+    if (i == segments.end() || segment->segmentId < i->first)
     {
-        segments.insert(i, std::make_pair(segment.segmentId, segment));
+        segments.insert(i, std::make_pair(segment->segmentId, segment));
     }
     else
     {
-        throw string("Local segment ") + std::to_string(segment.segmentId) + " was already specified";
+        throw string("Local segment ") + std::to_string(segment->segmentId) + " was already specified";
     }
 }
 
 
-static void parseTransferString(const char* transferString, vector<Transfer>& transfers)
+static void parseTransferString(const char* transferString, TransferVec& transfers)
 {
-    Transfer transfer;
-    transfer.remoteNodeId = 0;
-    transfer.remoteSegmentId = 0;
-    transfer.localAdapterNo = 0;
-    transfer.localSegmentId = 0;
-    transfer.size = 0;
-    transfer.localOffset = 0;
-    transfer.remoteOffset = 0;
-    transfer.repeat = 1;
-    transfer.verify = false;
-    transfer.pull = false;
-    transfer.global = false;
+    TransferPtr transfer(new Transfer);
+    transfer->repeat = 1;
 
     // Parse transfer string
     while (*transferString != '\0')
@@ -256,54 +242,54 @@ static void parseTransferString(const char* transferString, vector<Transfer>& tr
 
         if (key == "remote-node-id" || key == "remote-node" || key == "rn")
         {
-            transfer.remoteNodeId = parseNumber(key, value);   
+            transfer->remoteNodeId = parseNumber(key, value);   
         }
         else if (key == "remote-segment-id" || key == "remote-segment" || key == "rs")
         {
-            transfer.remoteSegmentId = parseNumber(key, value);
+            transfer->remoteSegmentId = parseNumber(key, value);
         }
         else if (key == "adapter" || key == "adapt" || key == "a")
         {
-            transfer.localAdapterNo = parseNumber(key, value);
+            transfer->localAdapterNo = parseNumber(key, value);
         }
         else if (key == "local-segment-id" || key == "local-segment" || key == "ls")
         {
-            transfer.localSegmentId = parseNumber(key, value);
+            transfer->localSegmentId = parseNumber(key, value);
         }
         else if (key == "pull" || key == "read")
         {
-            transfer.pull = true;
+            transfer->pull = true;
         }
         else if (key == "remote-offset" || key == "ro")
         {
-            transfer.remoteOffset = parseNumber(key, value);
+            transfer->remoteOffset = parseNumber(key, value);
         }
         else if (key == "local-offset" || key == "lo")
         {
-            transfer.localOffset = parseNumber(key, value);
+            transfer->localOffset = parseNumber(key, value);
         }
         else if (key == "size" || key == "s")
         {
-            transfer.size = parseNumber(key, value);
+            transfer->size = parseNumber(key, value);
         }
         else if (key == "repeat" || key == "c" || key == "r" || key == "n")
         {
-            transfer.repeat = parseNumber(key, value);
+            transfer->repeat = parseNumber(key, value);
         }
         else if (key == "verify")
         {
-            transfer.verify = true;
+            //transfer.verify = true;
         }
     }
 
 
     // Some sanity checking
-    if (transfer.remoteNodeId == 0)
+    if (transfer->remoteNodeId == 0)
     {
         throw string("Remote node id must be specified for transfers");
     }
 
-    if (transfer.repeat == 0)
+    if (transfer->repeat == 0)
     {
         throw string("Transfers can not be repeated 0 times");
     }
@@ -312,28 +298,28 @@ static void parseTransferString(const char* transferString, vector<Transfer>& tr
 }
 
 
-static uint parseVerbosity(const char* argument, uint level)
+static Log::Level parseVerbosity(const char* argument, uint level)
 {
     if (argument == nullptr)
     {
         // No argument given, increase verbosity level
-        return level + 1;
+        return level < Log::Level::DEBUG ? (Log::Level) (level + 1) : Log::Level::DEBUG;
     }
     else if (strcmp(argument, "error") == 0)
     {
-        return 0;
+        return Log::Level::ERROR;
     }
     else if (strcmp(argument, "warn") == 0)
     {
-        return 1;
+        return Log::Level::WARN;
     }
     else if (strcmp(argument, "info") == 0)
     {
-        return 2;
+        return Log::Level::INFO;
     }
     else if (strcmp(argument, "debug") == 0)
     {
-        return 3;
+        return Log::Level::DEBUG;
     }
 
     // Try to parse verbosity level as a number
@@ -345,17 +331,17 @@ static uint parseVerbosity(const char* argument, uint level)
         throw "Unknown log level: ``" + string(optarg) + "''";
     }
 
-    return level;
+    return level < Log::Level::DEBUG ? (Log::Level) (level + 1) : Log::Level::DEBUG;
 }
 
 
 /* Parse command line options */
-static void parseArguments(int argc, char** argv, map<uint, Segment>& segments, vector<Transfer>& transfers)
+static void parseArguments(int argc, char** argv, SegmentMap& segments, TransferVec& transfers, Log::Level& logLevel, string& logFile, string& reportFile)
 {
     int option;
     int index;
 
-    while ((option = getopt_long(argc, argv, "-:s:t:f:g:v::lh", options, &index)) != -1)
+    while ((option = getopt_long(argc, argv, "-:s:t:f:g:vlh", options, &index)) != -1)
     {
         switch (option)
         {
@@ -382,10 +368,11 @@ static void parseArguments(int argc, char** argv, map<uint, Segment>& segments, 
                 break;
 
             case 'f': // Set report file
+                reportFile = optarg;
                 break;
 
             case 'g': // Set log file
-                logFilename = optarg;
+                logFile = optarg;
                 break;
 
             case 's': // Parse local segment options
@@ -402,13 +389,17 @@ static void parseArguments(int argc, char** argv, map<uint, Segment>& segments, 
 
 int main(int argc, char** argv)
 {
-    map<uint, Segment> segments;
-    vector<Transfer> transfers;
+    SegmentMap segments;
+    TransferVec transfers;
+    FILE* logFile = stderr;
+    FILE* reportFile = stdout;
+    string logFilename, reportFilename;
+    Log::Level logLevel = Log::Level::ERROR;
 
     // Parse command line arguments
     try
     {
-        parseArguments(argc, argv, segments, transfers);
+        parseArguments(argc, argv, segments, transfers, logLevel, logFilename, reportFilename);
     }
     catch (int error)
     {
@@ -420,44 +411,95 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    // Initialize logging
-    FILE* logFile = stderr;
-    if (logFilename != nullptr)
+    // Do some sanity checking
+    if (segments.empty())
     {
-        if ((logFile = fopen(logFilename, "a")) == nullptr)
+        fprintf(stderr, "No segments specified\n");
+        return 1;
+    }
+    else if (transfers.empty())
+    {
+        for (SegmentMap::const_iterator it = segments.begin(); it != segments.end(); ++it)
         {
-            fprintf(stderr, "Failed to open log file: %s\n", strerror(errno));
-            return 1;
+            if (it->second->exports.empty())
+            {
+                fprintf(stderr, "Server mode specified, but no segment %u has no exports\n", it->first);
+                return 1;
+            }
         }
-
-        initLog(logFile, logLevel);
     }
 
     // Initialize SISCI API
-    sci_error_t err;
+    sci_error_t err = SCI_ERR_OK;
     SCIInitialize(0, &err);
     if (err != SCI_ERR_OK)
     {
-        error("Failed to initialize SISCI: %s", scierrstr(err));
-        fprintf(stderr, "FAIL\n");
+        fprintf(stderr, "Failed to initialize SISCI API\n");
         return 2;
     }
 
-    // Create segments and connections
-    try
+    // Open log file
+    if (!logFilename.empty())
     {
-        for (auto& segment: segments)
+        logFile = fopen(logFilename.c_str(), "a");
+        if (logFile == nullptr)
         {
-            fprintf(stdout, "%u %zu\n", segment.first, segment.second.size);
+            SCITerminate();
+            fprintf(stderr, "Failed to open log file: %s\n", strerror(errno));
+            return 1;
         }
     }
-    catch (sci_error_t error)
+    Log::init(logFile, logLevel);
+    Log::info("New run started...");
+
+    if (transfers.empty())
     {
+        // Catch ctrl+c from terminal
+        auto stopServer = [](int) {
+            stopBenchmarkServer();
+        };
+
+        signal(SIGTERM, (sig_t) stopServer);
+        signal(SIGINT, (sig_t) stopServer);
+
+        // No transfers specified, run as server
+        if (runBenchmarkServer(segments) != 0)
+        {
+            fprintf(stderr, "SERVER FAILED\n");
+        }
     }
+    else
+    {
+        // Open report file
+        if (!reportFilename.empty())
+        {
+            reportFile = fopen(reportFilename.c_str(), "a");
+            if (reportFile == nullptr)
+            {
+                fprintf(stderr, "Failed to open report file: %s\n", strerror(errno));
+                SCITerminate();
+                fclose(logFile);
+                return 1;
+            }
+        }
+
+        // Run benchmark client
+        if (runBenchmarkClient(segments, transfers) != 0)
+        {
+            fprintf(stderr, "CLIENT FAILED\n");
+        }
+
+        fflush(reportFile);
+        fclose(reportFile);
+    }
+
+    // Destroy any active SISCI handles
+    transfers.clear();
+    segments.clear();
 
     // Terminate SISCI API
     SCITerminate();
-    fprintf(stderr, "OK\n");
     fclose(logFile);
+
     return 0;
 }

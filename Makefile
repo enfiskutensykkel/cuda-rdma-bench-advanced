@@ -14,7 +14,7 @@ OBJECTS	 := $(CC_SRC:%.cc=%.o) $(CU_SRC:%.cu=%.o)
 # Compiler and linker settings
 CC	 := /usr/bin/g++
 NVCC 	 := $(CU_HOME)/bin/nvcc
-CFLAGS	 := -Wall -Wextra -D_REENTRANT
+CFLAGS	 := -Wall -Wextra -D_REENTRANT -g -O0
 INCLUDE	 := -I$(DIS_HOME)/include -I$(DIS_HOME)/include/dis -I$(CU_HOME)/include
 LDLIBS	 := -lsisci -lpthread -lcuda
 

@@ -4,6 +4,9 @@
 #include <cerrno>
 #include <cstring>
 #include <ctime>
+#include <sisci_types.h>
+#include <sisci_api.h>
+#include "log.h"
 #include "util.h"
 
 
@@ -56,7 +59,7 @@ static unsigned error_codes[] = {
     SCI_ERR_REMOTE_BUSY,
     SCI_ERR_LOCAL_BUSY,
     SCI_ERR_ALL_BUSY
-};
+}; 
 
 
 /* Corresponding error strings */
@@ -108,18 +111,6 @@ static const char* error_strings[] = {
 };
 
 
-/* Default log file */
-static FILE* logFile = stderr;
-
-
-/* Default log level */
-static uint logLevel = 0;
-
-
-/* Initial time of first log entry */
-static uint64_t logStart = 0;
-
-
 static inline size_t scierridx(sci_error_t code)
 {
     const size_t num = sizeof(error_codes) / sizeof(error_codes[0]);
@@ -151,7 +142,7 @@ const char* scierrstr(sci_error_t code)
 }
 
 
-uint64_t current_usecs()
+uint64_t usecs()
 {
     timespec ts;
 
@@ -164,88 +155,91 @@ uint64_t current_usecs()
 }
 
 
-void initLog(FILE* file, uint level)
+sci_error_t openDescriptor(sci_desc_t& desc)
 {
-    logFile = file;
-    logLevel = level;
-    logStart = current_usecs();
+    sci_error_t err;
+
+    SCIOpen(&desc, 0, &err);
+    if (err != SCI_ERR_OK)
+    {
+        Log::error("Failed to open descriptor: %s", scierrstr(err));
+    }
+
+    return err;
 }
 
 
-static inline void report(FILE* file, const char* prefix, const char* format, va_list arguments)
+sci_error_t closeDescriptor(sci_desc_t desc)
 {
-    uint64_t ts = 0;
-    if (file != stderr)
+    sci_error_t err;
+
+    do
     {
-        try
-        {
-            ts = current_usecs() - logStart;
-        }
-        catch (...)
-        {
-            ts = 0;
-        }
+        SCIClose(desc, 0, &err);
+    }
+    while (err == SCI_ERR_BUSY);
+
+    if (err != SCI_ERR_OK)
+    {
+        Log::error("Failed to close descriptor: %s", scierrstr(err));
     }
 
-    char buffer[1024];
-    size_t length = vsnprintf(buffer, sizeof(buffer), format, arguments);
-
-    if (file != stderr)
-    {
-        fprintf(file, "[%10lu] <%c> ", ts, *prefix);
-    }
-    else
-    {
-        fprintf(file, "%-5s: ", prefix);
-    }
-
-    fwrite(buffer, length, 1, file);
-    fwrite("\n", 1, 1, file);
-    fflush(file);
+    return err;
 }
 
 
-void error(const char* format, ...)
+uint64_t ioAddress(sci_local_segment_t segment)
 {
-    va_list args;
-    va_start(args, format);
-    report(logFile, "ERROR", format, args);
-    va_end(args);
-}
+    sci_error_t err;
+    sci_query_local_segment_t query;
 
+    query.subcommand = SCI_Q_LOCAL_SEGMENT_IOADDR;
+    query.segment = segment;
 
-void warn(const char* format, ...)
-{
-    if (logLevel >= 1)
+    SCIQuery(SCI_Q_LOCAL_SEGMENT, &query, 0, &err);
+    if (err != SCI_ERR_OK)
     {
-        va_list args;
-        va_start(args, format);
-        report(logFile, "WARN", format, args);
-        va_end(args);
+        Log::warn("Failed to query local segment: %s", scierrstr(err));
+        return 0;
     }
+
+    return query.data.ioaddr;
 }
 
 
-void info(const char* format, ...)
+uint64_t ioAddress(sci_remote_segment_t segment)
 {
-    if (logLevel >= 2)
+    sci_error_t err;
+    sci_query_remote_segment_t query;
+
+    query.subcommand = SCI_Q_REMOTE_SEGMENT_IOADDR;
+    query.segment = segment;
+
+    SCIQuery(SCI_Q_REMOTE_SEGMENT, &query, 0, &err);
+    if (err != SCI_ERR_OK)
     {
-        va_list args;
-        va_start(args, format);
-        report(logFile, "INFO", format, args);
-        va_end(args);
+        Log::warn("Failed to query remote segment: %s", scierrstr(err));
+        return 0;
     }
+
+    return query.data.ioaddr;
 }
 
 
-void debug(const char* format, ...)
+uint64_t physicalAddress(sci_local_segment_t segment)
 {
-    if (logLevel >= 3)
-    {
-        va_list args;
-        va_start(args, format);
-        report(logFile, "DEBUG", format, args);
-        va_end(args);
-    }
-}
+    sci_error_t err;
+    sci_query_local_segment_t query;
 
+    query.subcommand = SCI_Q_LOCAL_SEGMENT_PHYS_ADDR;
+    query.segment = segment;
+
+    SCIQuery(SCI_Q_LOCAL_SEGMENT, &query, 0, &err);
+    if (err != SCI_ERR_OK)
+    {
+        Log::warn("Failed to query local segment: %s", scierrstr(err));
+        return 0;
+    }
+
+    return query.data.ioaddr;
+}
