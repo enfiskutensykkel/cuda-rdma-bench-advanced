@@ -3,6 +3,7 @@
 
 #include <cstdio>
 #include <cstdarg>
+#include <sisci_types.h>
 
 
 namespace Log
@@ -36,6 +37,10 @@ namespace Log
     /* Debug information */
     void debug(const char* format, ...);
 };
+
+
+/* Translate a SISCI error code to a sensible string */
+const char* scierrstr(sci_error_t error);
 
 
 #endif

@@ -3,39 +3,47 @@
 
 #include <cstddef>
 #include <memory>
-#include <map>
-#include <sisci_types.h>
+#include <vector>
+#include <set>
 
 
 #define NO_DEVICE   -1
 
 
-/* Convenience type for exported segments */
-typedef std::map<uint, bool> ExportMap;
-
-
-/* Local segment descriptor */
-struct Segment
+/* Describe a local segment and how to create it */
+struct SegmentInfo
 {
-    uint                segmentId;  // segment identifier
-    int                 deviceId;   // CUDA device the buffer is allocated on
-    size_t              size;       // size of the buffer
-    sci_desc_t          sci_desc;   // SISCI descriptor associated with the segment
-    sci_local_segment_t segment;    // SISCI segment descriptor
-    void*               buffer;     // pointer to buffer memory
-    ExportMap           exports;    // map over exports
+    uint            segmentId;      // segment identifier
+    int             deviceId;       // CUDA device the buffer is allocated on
+    void*           deviceBuffer;   // buffer memory pointer
+    size_t          size;           // segment size
+    std::set<uint>  adapters;       // list of local adapters to export the segment on
+};
 
-    // Constructor
-    Segment();
 
-    // Destructor
-    ~Segment();
+/* Forward declaration of implementation class */
+struct SegmentImpl;
 
-    // Create the local segment
-    void createSegment(bool fill);
 
-    // Export segment on all adapters
-    void exportSegment();
+/* Actual local segment representation */
+class Segment
+{
+    public:
+        const uint id;
+        const size_t size;
+        const std::set<uint> adapters;
+
+        // Create the local segment
+        Segment(const SegmentInfo& segmentInfo);
+
+        // Set segment available on the specified adapter
+        void setAvailable(uint adapter);
+
+        // Get a pointer to segment memory
+        void* getPointer() const;
+
+    private:
+        mutable std::shared_ptr<SegmentImpl> impl;
 };
 
 
@@ -43,8 +51,7 @@ struct Segment
 typedef std::shared_ptr<Segment> SegmentPtr;
 
 
-/* Convenience type for a segment map */
-typedef std::map<uint, SegmentPtr> SegmentMap;
-
+/* Convenience type for a collection of segments */
+typedef std::vector<Segment> SegmentList;
 
 #endif

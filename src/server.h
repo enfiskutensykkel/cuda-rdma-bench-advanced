@@ -3,8 +3,6 @@
 
 #include "segment.h"
 
-int runBenchmarkServer(SegmentMap& segments);
-
-void stopBenchmarkServer();
+int runBenchmarkServer(const SegmentList& segments);
 
 #endif

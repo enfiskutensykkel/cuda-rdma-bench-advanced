@@ -3,7 +3,7 @@
 #include "client.h"
 
 
-int runBenchmarkClient(SegmentMap& segments, TransferVec& transfers)
+int runBenchmarkClient(const SegmentList& segments, TransferVec& transfers)
 {
     return 0;
 }

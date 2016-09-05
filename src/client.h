@@ -5,6 +5,6 @@
 #include "transfer.h"
 
 
-int runBenchmarkClient(SegmentMap& segments, TransferVec& transfers);
+int runBenchmarkClient(const SegmentList& segments, TransferVec& transfers);
 
 #endif
