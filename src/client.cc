@@ -1,6 +1,6 @@
 #include "segment.h"
 #include "transfer.h"
-#include "client.h"
+#include "benchmark.h"
 
 
 int runBenchmarkClient(const SegmentList& segments, TransferVec& transfers)

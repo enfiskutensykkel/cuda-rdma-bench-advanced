@@ -134,6 +134,7 @@ static void parseSegmentString(const char* segmentString, SegmentInfoMap& segmen
     segment.segmentId = 0;
     segment.deviceId = NO_DEVICE;
     segment.size = 0;
+    segment.deviceBuffer = nullptr;
 
     // Parse segment string
     while (*segmentString != '\0')
@@ -145,7 +146,7 @@ static void parseSegmentString(const char* segmentString, SegmentInfoMap& segmen
         {
             segment.size = parseNumber(key, value);
         }
-        else if (key == "local-segment-id" || key == "local-segment" || key == "ls")
+        else if (key == "local-segment-id" || key == "local-segment" || key == "ls" || key == "id")
         {
             segment.segmentId = parseNumber(key, value);
         }

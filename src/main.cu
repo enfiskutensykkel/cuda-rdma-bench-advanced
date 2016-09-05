@@ -6,10 +6,9 @@
 #include <sisci_api.h>
 #include "segment.h"
 #include "transfer.h"
+#include "benchmark.h"
 #include "log.h"
 #include "args.h"
-#include "server.h"
-#include "client.h"
 
 
 /* Print a list of local GPUs */
@@ -137,8 +136,16 @@ int main(int argc, char** argv)
     }
     catch (const std::string& error)
     {
-        freeBufferMemory(segmentInfos);
         fprintf(stderr, "Failed to create segments: %s\n", error.c_str());
+        segments.clear();
+        freeBufferMemory(segmentInfos);
+        return 1;
+    }
+    catch (const std::runtime_error& error)
+    {
+        fprintf(stderr, "Failed to create segments: %s\n", error.what());
+        segments.clear();
+        freeBufferMemory(segmentInfos);
         return 2;
     }
 
