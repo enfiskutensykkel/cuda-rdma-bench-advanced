@@ -42,15 +42,15 @@ static void giveUsage(const char* programName)
             "\nString format\n"
             "        key1=value1,key2,key3,key4=value4,key5=value5...\n"
             "\nSegment string\n"
-            "    size=<size>                    specify size of the segment (required)\n"
+            "    ls=<id>                        local segment id (required)\n"
+            "    size=<size>                    specify size of the segment [default is 30 MiB]\n"
+            "    gpu=<gpu>                      specify local GPU to host buffer on (omit to host buffer in RAM)\n"
             "    a=<no>                         export segment on specified adapter (required for servers)\n"
-            "    ls=<id>                        local segment id [default is 0]\n"
-            "    gpu=<gpu>                      specify local GPU to host buffer on [omit to host buffer in RAM]\n"
             "\nTransfer string\n"
+            "    ls=<id>                        local segment id (required)\n"
             "    rn=<id>                        remote node id (required)\n"
-            "    rs=<id>                        remote segment id [default is 0]\n"
-            "    a=<no>                         local adapter for segment [default is 0]\n"
-            "    ls=<id>                        local segment id [default is 0]\n"
+            "    rs=<id>                        remote segment id (required)]\n"
+            "    a=<no>                         local adapter for remote node [default is 0]\n"
             "    pull                           read data from remote buffer instead of writing\n"
             "    ro=<offset>                    offset into remote segment [default is 0]\n"
             "    lo=<offset>                    offset into local segment [default is 0]\n"
@@ -136,25 +136,28 @@ static void parseSegmentString(const char* segmentString, SegmentInfoMap& segmen
     segment.size = 0;
     segment.deviceBuffer = nullptr;
 
+    bool suppliedId = false;
+
     // Parse segment string
     while (*segmentString != '\0')
     {
         string key, value;
         segmentString = nextToken(segmentString, key, value);
 
-        if (key == "size" || key == "s")
+        if (key == "local-segment-id" || key == "local-segment" || key == "segment-id" || key == "ls" || key == "id")
+        {
+            segment.segmentId = parseNumber(key, value);
+            suppliedId = true;
+        }
+        else if (key == "length" || key == "len" || key == "l" || key == "size" || key == "sz" || key == "s")
         {
             segment.size = parseNumber(key, value);
         }
-        else if (key == "local-segment-id" || key == "local-segment" || key == "ls" || key == "id")
-        {
-            segment.segmentId = parseNumber(key, value);
-        }
-        else if (key == "adapter" || key == "adapt" || key == "a")
+        else if (key == "adapter" || key == "adapt" || key == "a" || key == "export")
         {
             segment.adapters.insert(parseNumber(key, value));
         }
-        else if (key == "device" || key == "gpu")
+        else if (key == "device" || key == "dev" || key == "gpu" || key == "g")
         {
             segment.deviceId = parseNumber(key, value);
         }
@@ -165,6 +168,11 @@ static void parseSegmentString(const char* segmentString, SegmentInfoMap& segmen
     }
 
     // Some sanity checking
+    if (!suppliedId)
+    {
+        throw string("Local segment id must be specified");
+    }
+
     if (segment.size == 0)
     {
         throw string("Local segment size must be specified");
@@ -194,21 +202,21 @@ static void parseTransferString(const char* transferString, TransferVec& transfe
         string key, value;
         transferString = nextToken(transferString, key, value);
 
-        if (key == "remote-node-id" || key == "remote-node" || key == "rn")
+        if (key == "local-segment-id" || key == "local-segment" || key == "ls" || kwy == "lid")
+        {
+            transfer->localSegmentId = parseNumber(key, value);
+        }
+        else if (key == "remote-node-id" || key == "remote-node" || key == "rn")
         {
             transfer->remoteNodeId = parseNumber(key, value);   
         }
-        else if (key == "remote-segment-id" || key == "remote-segment" || key == "rs")
+        else if (key == "remote-segment-id" || key == "remote-id" || key == "remote-segment" || key == "rs" || key == "rid")
         {
             transfer->remoteSegmentId = parseNumber(key, value);
         }
         else if (key == "adapter" || key == "adapt" || key == "a")
         {
             transfer->localAdapterNo = parseNumber(key, value);
-        }
-        else if (key == "local-segment-id" || key == "local-segment" || key == "ls")
-        {
-            transfer->localSegmentId = parseNumber(key, value);
         }
         else if (key == "pull" || key == "read")
         {
@@ -222,7 +230,7 @@ static void parseTransferString(const char* transferString, TransferVec& transfe
         {
             transfer->localOffset = parseNumber(key, value);
         }
-        else if (key == "size" || key == "s")
+        else if (key == "length" || key == "len" || key == "l" || key == "size" || key == "sz" || key == "s")
         {
             transfer->size = parseNumber(key, value);
         }
