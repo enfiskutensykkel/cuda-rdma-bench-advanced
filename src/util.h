@@ -5,6 +5,10 @@
 #include <sisci_types.h>
 
 
+/* Get a CUDA device pointer from a pointer allocated with cudaMalloc */
+void* getDevicePointer(void* hostPointer);
+
+
 /* Get current timestamp (microseconds) */
 uint64_t currentTime();
 

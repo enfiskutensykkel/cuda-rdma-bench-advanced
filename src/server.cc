@@ -1,3 +1,4 @@
+#include <string>
 #include <stdexcept>
 #include <signal.h>
 #include "benchmark.h"
@@ -18,22 +19,28 @@ int runBenchmarkServer(SegmentList& segments)
 {
     try
     {
-        for (Segment& segment: segments)
+        for (SegmentPtr segment: segments)
         {
-            // Export segments on all adapters
-            for (uint adapter: segment.adapters)
-            {
-                Log::debug("Exporting segment %u on adapter %u...", segment.id, adapter);
-                segment.setAvailable(adapter);
-            }
+            // Fill segment buffer
 
-            // TODO: create interrupts, one per segment id
+            // Create data interrupt
+           
+            // Export segments on all adapters
+            for (uint adapter: segment->adapters)
+            {
+                Log::debug("Exporting segment %u on adapter %u...", segment->id, adapter);
+                segment->setAvailable(adapter);
+            }
         }
     } 
+    catch (const std::string& error)
+    {
+        Log::error("%s", error.c_str());
+    }
     catch (const std::runtime_error& error)
     {
         Log::error("Unexpected error caused server to abort: %s", error.what());
-        return -1;
+        return 2;
     }
 
     // Catch ctrl + c from terminal

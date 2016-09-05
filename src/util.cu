@@ -10,6 +10,20 @@
 #include "util.h"
 
 
+void* getDevicePointer(void* hostPointer)
+{
+    cudaPointerAttributes attrs;
+
+    cudaError_t err = cudaPointerGetAttributes(&attrs, hostPointer);
+    if (err != cudaSuccess)
+    {
+        Log::error("Failed to get pointer attributes: %s", cudaGetErrorString(err));
+        throw std::runtime_error(cudaGetErrorString(err));
+    }
+
+    return attrs.devicePointer;
+}
+
 
 uint64_t currentTime()
 {
@@ -17,7 +31,8 @@ uint64_t currentTime()
 
     if (clock_gettime(CLOCK_REALTIME, &ts) < 0)
     {
-        throw std::runtime_error("Failed to get realtime clock");
+        Log::error("Failed to get realtime clock: %s", strerror(errno));
+        throw std::runtime_error(strerror(errno));
     }
 
     return ts.tv_sec * 1e6 + ts.tv_nsec / 1e3;

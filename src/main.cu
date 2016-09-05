@@ -4,6 +4,7 @@
 #include <cuda.h>
 #include <sisci_types.h>
 #include <sisci_api.h>
+#include "util.h"
 #include "segment.h"
 #include "transfer.h"
 #include "benchmark.h"
@@ -11,80 +12,47 @@
 #include "args.h"
 
 
-/* Print a list of local GPUs */
-void listGPUs()
-{
-    cudaError_t err;
-
-    int deviceCount = 0;
-    err = cudaGetDeviceCount(&deviceCount);
-    if (err != cudaSuccess)
-    {
-        throw std::string(cudaGetErrorString(err));
-    }
-
-    fprintf(stderr, "\n %2s   %-20s   %-9s   %12s   %7s   %7s   %8s   %6s   %3s   %15s\n",
-            "ID", "Device name", "IO addr", "Compute mode", "Managed", "Unified", "Map hmem", "#Async", "L1", "Global mem size");
-    fprintf(stderr, "---------------------------------------------------------------------------------------------------------------------\n");
-
-    for (int i = 0; i < deviceCount; ++i)
-    {
-        cudaDeviceProp prop;
-
-        err = cudaGetDeviceProperties(&prop, i);
-        if (err != cudaSuccess)
-        {
-            throw std::string(cudaGetErrorString(err));
-        }
-
-        fprintf(stderr, " %2d   %-20s   %02x:%02x.%-3x   %9d.%-2d   %7s   %7s   %8s   %6d   %3s   %10.02f MiB\n",
-                i, prop.name, prop.pciBusID, prop.pciDeviceID, prop.pciDomainID,
-                prop.major, prop.minor, 
-                prop.managedMemory ? "yes" : "no", 
-                prop.unifiedAddressing ? "yes" : "no",
-                prop.canMapHostMemory ? "yes" : "no",
-                prop.asyncEngineCount,
-                prop.globalL1CacheSupported ? "yes" : "no",
-                prop.totalGlobalMem / (double) (1 << 20)
-               );
-    }
-    fprintf(stderr, "\n");
-}
-
-
 /* Iterate over segment infos and create segments accordingly */
-void createSegments(SegmentInfoMap& segmentInfos, SegmentList& segments)
+static void createSegments(SegmentInfoMap& segmentInfos, SegmentList& segments)
 {
     for (auto segmentIt = segmentInfos.begin(); segmentIt != segmentInfos.end(); ++segmentIt)
     {
-        SegmentInfo& segmentInfo = segmentIt->second;
+        SegmentInfo& info = segmentIt->second;
+        SegmentPtr segment;
 
-        if (segmentInfo.deviceId != NO_DEVICE)
+        if (info.deviceId != NO_DEVICE)
         {
-            cudaError_t err = cudaSetDevice(segmentInfo.deviceId);
+            cudaError_t err = cudaSetDevice(info.deviceId);
             if (err != cudaSuccess)
             {
-                Log::error("Failed to initialize GPU %d: %s", segmentInfo.deviceId, cudaGetErrorString(err));
+                Log::error("Failed to initialize GPU %d: %s", info.deviceId, cudaGetErrorString(err));
                 throw std::string(cudaGetErrorString(err));
             }
                 
-            err = cudaMalloc(&segmentInfo.deviceBuffer, segmentInfo.size);
+            err = cudaMalloc(&info.deviceBuffer, info.size);
             if (err != cudaSuccess)
             {
-                Log::error("Failed to allocate buffer on GPU %d: %s", segmentInfo.deviceId, cudaGetErrorString(err));
+                Log::error("Failed to allocate buffer on GPU %d: %s", info.deviceId, cudaGetErrorString(err));
                 throw std::string(cudaGetErrorString(err));
             }
 
-            Log::debug("Allocated buffer on GPU %d", segmentInfo.deviceId);
+            Log::debug("Allocated buffer on GPU %d", info.deviceId);
+
+            void* devicePtr = getDevicePointer(info.deviceBuffer);
+            segment = Segment::createWithPhysMem(info.segmentId, devicePtr, info.size, info.adapters);
+        }
+        else
+        {
+            segment = Segment::create(info.segmentId, info.size, info.adapters);
         }
 
-        segments.push_back(segmentInfo);
+        segments.push_back(segment);
     }
 }
 
 
 /* Iterate over segment infos and free buffers */
-void freeBufferMemory(SegmentInfoMap& segmentInfos)
+static void freeBufferMemory(SegmentInfoMap& segmentInfos)
 {
     for (auto segmentIt = segmentInfos.begin(); segmentIt != segmentInfos.end(); ++segmentIt)
     {
@@ -100,14 +68,15 @@ void freeBufferMemory(SegmentInfoMap& segmentInfos)
 int main(int argc, char** argv)
 {
     SegmentList segments;
+    TransferList transfers;
     SegmentInfoMap segmentInfos;
-    TransferVec transfers;
+    TransferInfoList transferInfos;
 
     // Parse command line arguments
     try
     {
         Log::Level logLevel = Log::Level::ERROR;
-        parseArguments(argc, argv, segmentInfos, transfers, logLevel);
+        parseArguments(argc, argv, segmentInfos, transferInfos, logLevel);
         Log::init(stderr, logLevel);
     }
     catch (int error)
@@ -177,4 +146,48 @@ int main(int argc, char** argv)
     SCITerminate();
 
     return 0;
+}
+
+
+/* Print a list of local GPUs */
+void listGPUs()
+{
+    cudaError_t err;
+
+    // Get number of devices
+    int deviceCount = 0;
+    err = cudaGetDeviceCount(&deviceCount);
+    if (err != cudaSuccess)
+    {
+        throw std::string(cudaGetErrorString(err));
+    }
+
+    // Print header
+    fprintf(stderr, "\n %2s   %-20s   %-9s   %8s   %7s   %7s   %8s   %6s   %3s   %15s\n",
+            "ID", "Device name", "IO addr", "Comp mod", "Managed", "Unified", "Map hmem", "#Async", "L1", "Global mem size");
+    fprintf(stderr, "-----------------------------------------------------------------------------------------------------------------\n");
+
+    // Iterate over devices and print properties
+    for (int i = 0; i < deviceCount; ++i)
+    {
+        cudaDeviceProp prop;
+
+        err = cudaGetDeviceProperties(&prop, i);
+        if (err != cudaSuccess)
+        {
+            throw std::string(cudaGetErrorString(err));
+        }
+
+        fprintf(stderr, " %2d   %-20s   %02x:%02x.%-3x   %5d.%-2d   %7s   %7s   %8s   %6d   %3s   %10.02f MiB\n",
+                i, prop.name, prop.pciBusID, prop.pciDeviceID, prop.pciDomainID,
+                prop.major, prop.minor, 
+                prop.managedMemory ? "yes" : "no", 
+                prop.unifiedAddressing ? "yes" : "no",
+                prop.canMapHostMemory ? "yes" : "no",
+                prop.asyncEngineCount,
+                prop.globalL1CacheSupported ? "yes" : "no",
+                prop.totalGlobalMem / (double) (1 << 20)
+               );
+    }
+    fprintf(stderr, "\n");
 }

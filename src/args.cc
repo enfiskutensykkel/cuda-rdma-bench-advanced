@@ -24,6 +24,8 @@ static struct option options[] =
     { .name = nullptr, .has_arg = false, .flag = nullptr, .val = 0 }
 };
 
+//ls=0,rn=4,rs=0,pull,ro=0:lo=0:sz=10
+
 
 /* Show program usage text */
 static void giveUsage(const char* programName)
@@ -50,13 +52,16 @@ static void giveUsage(const char* programName)
             "    ls=<id>                        local segment id (required)\n"
             "    rn=<id>                        remote node id (required)\n"
             "    rs=<id>                        remote segment id (required)]\n"
+            "    transfer=<vector entry>        specify a DMA vector entry (required)\n"
             "    a=<no>                         local adapter for remote node [default is 0]\n"
             "    pull                           read data from remote buffer instead of writing\n"
-            "    ro=<offset>                    offset into remote segment [default is 0]\n"
-            "    lo=<offset>                    offset into local segment [default is 0]\n"
-            "    size=<size>                    transfer size [default is the size of segment]\n"
             "    repeat=<count>                 number of times to repeat transfer [default is 1]\n"
-            "    verify                         calculate checksum of transfer\n"
+            "    verify                         calculate checksum of segments after transfer\n"
+            "\nVector entry format\n"
+            "        lo=<offset>:ro=<offset>:size=<size>\n\n"
+            "    lo=<offset>                    offset into local segment\n"
+            "    ro=<offset>                    offset into remote segment\n"
+            "    size=<size>                    transfer size\n"
             "\nOther options\n"
             "  --verbosity      <level>         specify \"error\", \"warn\", \"info\" or \"debug\" log level\n"
             "  --log            <filename>      use a log file instead of stderr for logging\n"
@@ -191,71 +196,71 @@ static void parseSegmentString(const char* segmentString, SegmentInfoMap& segmen
 }
 
 
-static void parseTransferString(const char* transferString, TransferVec& transfers)
+static void parseTransferString(const char* transferString, TransferInfoList& transfers)
 {
-    TransferPtr transfer(new Transfer);
-    transfer->repeat = 1;
-
-    // Parse transfer string
-    while (*transferString != '\0')
-    {
-        string key, value;
-        transferString = nextToken(transferString, key, value);
-
-        if (key == "local-segment-id" || key == "local-segment" || key == "ls" || kwy == "lid")
-        {
-            transfer->localSegmentId = parseNumber(key, value);
-        }
-        else if (key == "remote-node-id" || key == "remote-node" || key == "rn")
-        {
-            transfer->remoteNodeId = parseNumber(key, value);   
-        }
-        else if (key == "remote-segment-id" || key == "remote-id" || key == "remote-segment" || key == "rs" || key == "rid")
-        {
-            transfer->remoteSegmentId = parseNumber(key, value);
-        }
-        else if (key == "adapter" || key == "adapt" || key == "a")
-        {
-            transfer->localAdapterNo = parseNumber(key, value);
-        }
-        else if (key == "pull" || key == "read")
-        {
-            transfer->pull = true;
-        }
-        else if (key == "remote-offset" || key == "ro")
-        {
-            transfer->remoteOffset = parseNumber(key, value);
-        }
-        else if (key == "local-offset" || key == "lo")
-        {
-            transfer->localOffset = parseNumber(key, value);
-        }
-        else if (key == "length" || key == "len" || key == "l" || key == "size" || key == "sz" || key == "s")
-        {
-            transfer->size = parseNumber(key, value);
-        }
-        else if (key == "repeat" || key == "c" || key == "r" || key == "n")
-        {
-            transfer->repeat = parseNumber(key, value);
-        }
-        else if (key == "verify")
-        {
-            //transfer.verify = true;
-        }
-    }
-
-    // Some sanity checking
-    if (transfer->remoteNodeId == 0)
-    {
-        throw string("Remote node id must be specified for transfers");
-    }
-
-    if (transfer->repeat == 0)
-    {
-        throw string("Transfers can not be repeated 0 times");
-    }
-
-    transfers.push_back(transfer);
+//    TransferPtr transfer(new Transfer);
+//    transfer->repeat = 1;
+//
+//    // Parse transfer string
+//    while (*transferString != '\0')
+//    {
+//        string key, value;
+//        transferString = nextToken(transferString, key, value);
+//
+//        if (key == "local-segment-id" || key == "local-segment" || key == "ls" || key == "lid")
+//        {
+//            transfer->localSegmentId = parseNumber(key, value);
+//        }
+//        else if (key == "remote-node-id" || key == "remote-node" || key == "rn")
+//        {
+//            transfer->remoteNodeId = parseNumber(key, value);   
+//        }
+//        else if (key == "remote-segment-id" || key == "remote-id" || key == "remote-segment" || key == "rs" || key == "rid")
+//        {
+//            transfer->remoteSegmentId = parseNumber(key, value);
+//        }
+//        else if (key == "adapter" || key == "adapt" || key == "a")
+//        {
+//            transfer->localAdapterNo = parseNumber(key, value);
+//        }
+//        else if (key == "pull" || key == "read")
+//        {
+//            transfer->pull = true;
+//        }
+//        else if (key == "remote-offset" || key == "ro")
+//        {
+//            transfer->remoteOffset = parseNumber(key, value);
+//        }
+//        else if (key == "local-offset" || key == "lo")
+//        {
+//            transfer->localOffset = parseNumber(key, value);
+//        }
+//        else if (key == "length" || key == "len" || key == "l" || key == "size" || key == "sz" || key == "s")
+//        {
+//            transfer->size = parseNumber(key, value);
+//        }
+//        else if (key == "repeat" || key == "c" || key == "r" || key == "n")
+//        {
+//            transfer->repeat = parseNumber(key, value);
+//        }
+//        else if (key == "verify")
+//        {
+//            //transfer.verify = true;
+//        }
+//    }
+//
+//    // Some sanity checking
+//    if (transfer->remoteNodeId == 0)
+//    {
+//        throw string("Remote node id must be specified for transfers");
+//    }
+//
+//    if (transfer->repeat == 0)
+//    {
+//        throw string("Transfers can not be repeated 0 times");
+//    }
+//
+//    transfers.push_back(transfer);
 }
 
 
@@ -297,7 +302,7 @@ static Log::Level parseVerbosity(const char* argument, uint level)
 
 
 /* Parse command line options */
-void parseArguments(int argc, char** argv, SegmentInfoMap& segments, TransferVec& transfers, Log::Level& logLevel)
+void parseArguments(int argc, char** argv, SegmentInfoMap& segments, TransferInfoList& transfers, Log::Level& logLevel)
 {
     int option;
     int index;

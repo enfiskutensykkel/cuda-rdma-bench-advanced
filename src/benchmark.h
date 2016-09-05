@@ -8,6 +8,6 @@
 int runBenchmarkServer(SegmentList& segments);
 
 
-int runBenchmarkClient(const SegmentList& segments, TransferVec& transfers);
+int runBenchmarkClient(const SegmentList& segments, TransferList& transfers);
 
 #endif
