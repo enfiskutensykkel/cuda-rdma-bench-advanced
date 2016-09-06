@@ -15,17 +15,29 @@ struct TransferImpl;
 class Transfer
 {
     public:
-        Transfer(const Segment& localSegment, uint remoteNodeId, uint remoteSegmentId, uint adapter, bool pull);
+        Transfer(const SegmentPtr localSegment, uint remoteNodeId, uint remoteSegmentId, uint adapter);
 
-        void execute(FILE* reportFile) const;
+        void addVectorEntry(size_t localOffset, size_t remoteOffset, size_t size);
+
+        void addVectorEntry(const dis_dma_vec_t& entry);
+
+        void setDirection(bool read);
+
+//        void setRemoteGlobal(bool global);
+//
+//        void setLocalGlobal(bool global);
 
     private:
         mutable std::shared_ptr<TransferImpl> impl;
 };
 
 
+/* Convenience type for a transfer pointer */
+typedef std::shared_ptr<Transfer> TransferPtr;
+
+
 /* Convenience type for a collection of transfers */
-typedef std::vector<Transfer> TransferList;
+typedef std::vector<TransferPtr> TransferList;
 
 
 #endif

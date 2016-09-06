@@ -38,8 +38,8 @@ static void createSegments(SegmentInfoMap& segmentInfos, SegmentList& segments)
 
             Log::debug("Allocated buffer on GPU %d", info.deviceId);
 
-            void* devicePtr = getDevicePointer(info.deviceBuffer);
-            segment = Segment::createWithPhysMem(info.segmentId, devicePtr, info.size, info.adapters);
+            void* devicePtr = getDevicePtr(info.deviceBuffer);
+            segment = Segment::createWithPhysMem(info.segmentId, info.size, info.adapters, info.deviceId, devicePtr);
         }
         else
         {
@@ -52,7 +52,7 @@ static void createSegments(SegmentInfoMap& segmentInfos, SegmentList& segments)
 
 
 /* Iterate over segment infos and free buffers */
-static void freeBufferMemory(SegmentInfoMap& segmentInfos)
+static void freeBufferMemory(const SegmentInfoMap& segmentInfos)
 {
     for (auto segmentIt = segmentInfos.begin(); segmentIt != segmentInfos.end(); ++segmentIt)
     {
@@ -61,6 +61,40 @@ static void freeBufferMemory(SegmentInfoMap& segmentInfos)
             Log::debug("Freeing buffer on GPU %d", segmentIt->second.deviceId);
             cudaFree(segmentIt->second.deviceBuffer);
         }
+    }
+}
+
+
+/* Iterate over transfer infos and create transfers */
+static void createTransfers(const TransferInfoList& transferInfos, TransferList& transfers, const SegmentList& segments)
+{
+    for (const auto info: transferInfos)
+    {
+        // Find corresponding local segment
+        SegmentPtr localSegment(nullptr);
+        for (SegmentPtr segment: segments)
+        {
+            if (segment->id == info->localSegmentId)
+            {
+                localSegment = segment;
+                break;
+            }
+        }
+
+        if (localSegment.get() == nullptr)
+        {
+            Log::error("Could not match local segment %u", info->localSegmentId);
+            throw std::string("Could not find local segment ") + std::to_string(info->localSegmentId);
+        }
+        
+        // Connect to remote end and create transfer
+        TransferPtr transfer(new Transfer(localSegment, info->remoteNodeId, info->remoteSegmentId, info->localAdapterNo));
+        for (const dis_dma_vec_t& vecEntry: info->vector)
+        {
+            transfer->addVectorEntry(vecEntry);
+        }
+
+        transfers.push_back(transfer);
     }
 }
 
@@ -118,6 +152,24 @@ int main(int argc, char** argv)
         return 2;
     }
 
+    // Create transfers
+    try
+    {
+        createTransfers(transferInfos, transfers, segments);
+    }
+    catch (const std::string& error)
+    {
+        fprintf(stderr, "Failed to create transfers: %s\n", error.c_str());
+        freeBufferMemory(segmentInfos);
+        return 1;
+    }
+    catch (const std::runtime_error& error)
+    {
+        fprintf(stderr, "Failed to create transfers: %s\n", error.what());
+        freeBufferMemory(segmentInfos);
+        return 2;
+    }
+
     if (transfers.empty())
     {
         // No transfers specified, run as server
@@ -150,7 +202,7 @@ int main(int argc, char** argv)
 
 
 /* Print a list of local GPUs */
-void listGPUs()
+void listGpus()
 {
     cudaError_t err;
 

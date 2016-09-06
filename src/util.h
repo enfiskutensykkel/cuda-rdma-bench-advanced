@@ -5,8 +5,23 @@
 #include <sisci_types.h>
 
 
+/* CUDA device info descriptor */
+struct DeviceInfo 
+{
+    int     id;         // CUDA device ID
+    char    name[256];  // CUDA device name
+    int     domain;     // PCI domain
+    int     bus;        // PCI bus
+    int     device;     // PCI device
+};
+
+
+/* Get information about a CUDA device */
+void getDeviceInfo(int deviceId, DeviceInfo& info);
+
+
 /* Get a CUDA device pointer from a pointer allocated with cudaMalloc */
-void* getDevicePointer(void* hostPointer);
+void* getDevicePtr(void* hostPointer);
 
 
 /* Get current timestamp (microseconds) */

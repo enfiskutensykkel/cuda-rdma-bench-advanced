@@ -10,7 +10,25 @@
 #include "util.h"
 
 
-void* getDevicePointer(void* hostPointer)
+void getDeviceInfo(int deviceId, DeviceInfo& info)
+{
+    cudaDeviceProp prop;
+
+    cudaError_t err = cudaGetDeviceProperties(&prop, deviceId);
+    if (err != cudaSuccess)
+    {
+        Log::warn("Failed to get device properties: %s", cudaGetErrorString(err));
+    }
+
+    info.id = deviceId;
+    strncpy(info.name, prop.name, 256);
+    info.domain = prop.pciBusID;
+    info.bus = prop.pciDomainID;
+    info.device = prop.pciDeviceID;
+}
+
+
+void* getDevicePtr(void* hostPointer)
 {
     cudaPointerAttributes attrs;
 
@@ -46,6 +64,7 @@ sci_error_t openDescriptor(sci_desc_t& desc)
     SCIOpen(&desc, 0, &err);
     if (err != SCI_ERR_OK)
     {
+        desc = nullptr;
         Log::error("Failed to open descriptor: %s", scierrstr(err));
     }
 

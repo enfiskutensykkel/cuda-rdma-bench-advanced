@@ -1,4 +1,5 @@
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <map>
 #include <stdexcept>
@@ -21,7 +22,40 @@ struct SegmentImpl
     sci_desc_t              sd;         // SISCI descriptor
     sci_local_segment_t     segment;    // SISCI segment descriptor
     map<uint, bool>         exports;    // map over exports ordered by adapter number
+    DeviceInfo*             devInfo;    // device info
 };
+
+
+static sci_callback_action_t 
+connectEvent(SegmentImpl* info, sci_local_segment_t segment, sci_segment_cb_reason_t reason, uint nodeId, uint adapter, sci_error_t err)
+{
+    if (err != SCI_ERR_OK)
+    {
+        Log::warn("Error condition in segment callback: %s", scierrstr(err));
+    }
+
+    // Report state
+    if (reason == SCI_CB_CONNECT)
+    {
+        Log::info("Segment %u got connection from remote node %u on adapter %u", info->id, nodeId, adapter);
+    }
+    else if (reason == SCI_CB_DISCONNECT)
+    {
+        Log::info("Remote node %u disconnected from segment %u", nodeId, info->id);
+    }
+
+    // Try to connect to remote interrupt
+    sci_desc_t sd;
+    if ((err = openDescriptor(sd)) != SCI_ERR_OK)
+    {
+        Log::error("Failed to open descriptor in callback: %s", scierrstr(err));
+        return SCI_CALLBACK_CONTINUE;
+    }
+
+    closeDescriptor(sd);
+
+    return SCI_CALLBACK_CONTINUE;
+}
 
 
 static void releaseSegment(SegmentImpl* seginfo)
@@ -71,15 +105,42 @@ static void releaseSegment(SegmentImpl* seginfo)
     }
 
     // Delete segment holder
+    if (seginfo->devInfo != nullptr)
+    {
+        delete seginfo->devInfo;
+    }
+
     delete seginfo;
 }
 
 
-Segment::Segment(std::shared_ptr<SegmentImpl> impl, const std::set<uint>& adapters) 
+static shared_ptr<SegmentImpl> createSegmentImpl(uint id, size_t size)
+{
+    shared_ptr<SegmentImpl> ptr(new SegmentImpl, &releaseSegment);
+    ptr->sd = nullptr;
+    ptr->segment = nullptr;
+    ptr->devInfo = nullptr;
+    
+    ptr->id = id;
+    ptr->size = size;
+
+    // Open SISCI descriptor
+    sci_error_t err;
+    if ((err = openDescriptor(ptr->sd)) != SCI_ERR_OK)
+    {
+        throw runtime_error(scierrstr(err));
+    }
+
+    return ptr;
+}
+
+
+Segment::Segment(shared_ptr<SegmentImpl> impl, const std::set<uint>& adapters) 
     :
     id(impl->id),
     size(impl->size),
     adapters(adapters),
+    physMem(impl->devInfo != nullptr),
     impl(impl)
 {
     sci_error_t err;
@@ -108,21 +169,13 @@ SegmentPtr Segment::create(uint id, size_t size, const std::set<uint>& adapters)
     sci_error_t err;
 
     // Create initial segment holder
-    shared_ptr<SegmentImpl> impl(new SegmentImpl, &releaseSegment);
-    impl->sd = nullptr;
-    impl->segment = nullptr;
-    impl->id = id;
-
-    // Open SISCI descriptor
-    if ((err = openDescriptor(impl->sd)) != SCI_ERR_OK)
-    {
-        throw runtime_error(scierrstr(err));
-    }
+    shared_ptr<SegmentImpl> impl = createSegmentImpl(id, size);
 
     // Create local segment
-    SCICreateSegment(impl->sd, &(impl->segment), id, size, NULL, NULL, 0, &err);
+    SCICreateSegment(impl->sd, &impl->segment, id, size, (sci_cb_local_segment_t) &connectEvent, impl.get(), SCI_FLAG_USE_CALLBACK, &err);
     if (err != SCI_ERR_OK)
     {
+        impl->segment = nullptr;
         Log::error("Failed to create segment %u: %s", id, scierrstr(err));
         throw runtime_error(scierrstr(err));
     }
@@ -131,26 +184,18 @@ SegmentPtr Segment::create(uint id, size_t size, const std::set<uint>& adapters)
 }
 
 
-SegmentPtr Segment::createWithPhysMem(uint id, void* ptr, size_t size, const std::set<uint>& adapters)
+SegmentPtr Segment::createWithPhysMem(uint id, size_t size, const std::set<uint>& adapters, int gpu, void* ptr)
 {
     sci_error_t err;
 
     // Create initial segment holder
-    shared_ptr<SegmentImpl> impl(new SegmentImpl, &releaseSegment);
-    impl->sd = nullptr;
-    impl->segment = nullptr;
-    impl->id = id;
-
-    // Open SISCI descriptor
-    if ((err = openDescriptor(impl->sd)) != SCI_ERR_OK)
-    {
-        throw runtime_error(scierrstr(err));
-    }
+    shared_ptr<SegmentImpl> impl = createSegmentImpl(id, size);
 
     // Create local segment
-    SCICreateSegment(impl->sd, &(impl->segment), id, size, NULL, NULL, SCI_FLAG_EMPTY, &err);
+    SCICreateSegment(impl->sd, &impl->segment, id, size, (sci_cb_local_segment_t) &connectEvent, impl.get(), SCI_FLAG_EMPTY | SCI_FLAG_USE_CALLBACK, &err);
     if (err != SCI_ERR_OK)
     {
+        impl->segment = nullptr;
         Log::error("Failed to create segment %u: %s", id, scierrstr(err));
         throw runtime_error(scierrstr(err));
     }
@@ -162,6 +207,10 @@ SegmentPtr Segment::createWithPhysMem(uint id, void* ptr, size_t size, const std
         Log::error("Failed to attach memory on segment %u: %s", id, scierrstr(err));
         throw runtime_error(scierrstr(err));
     }
+
+    // Store device info
+    impl->devInfo = new DeviceInfo;
+    getDeviceInfo(gpu, *impl->devInfo);
 
     return SegmentPtr(new Segment(impl, adapters));
 }

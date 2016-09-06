@@ -10,7 +10,7 @@ using std::string;
 
 
 /* Print a list of enabled CUDA devices */
-extern void listGPUs();
+extern void listGpus();
 
 
 /* Valid command line options */
@@ -198,6 +198,12 @@ static void parseSegmentString(const char* segmentString, SegmentInfoMap& segmen
 
 static void parseTransferString(const char* transferString, TransferInfoList& transfers)
 {
+    TransferInfoPtr transfer(new TransferInfo);
+    transfer->localSegmentId = 0;
+    transfer->remoteNodeId = 8;
+    transfer->remoteSegmentId = 0;
+    transfer->localAdapterNo = 0;
+    transfers.push_back(transfer);
 //    TransferPtr transfer(new Transfer);
 //    transfer->repeat = 1;
 //
@@ -327,7 +333,7 @@ void parseArguments(int argc, char** argv, SegmentInfoMap& segments, TransferInf
                 throw 0;
 
             case 'l': // List GPUs
-                listGPUs();
+                listGpus();
                 throw 0;
 
             case 'v': // Increase verbosity level
@@ -349,7 +355,8 @@ void parseArguments(int argc, char** argv, SegmentInfoMap& segments, TransferInf
     {
         throw string("At least one local segment must be specified");
     }
-    else if (transfers.empty())
+    
+    if (transfers.empty())
     {
         for (SegmentInfoMap::const_iterator it = segments.begin(); it != segments.end(); ++it)
         {
@@ -359,4 +366,6 @@ void parseArguments(int argc, char** argv, SegmentInfoMap& segments, TransferInf
             }
         }
     }
+    
+    // TODO check that transfer sizes doesn't exceed local segment size
 }

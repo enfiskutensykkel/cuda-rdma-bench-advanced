@@ -3,6 +3,7 @@
 
 #include <map>
 #include <list>
+#include <memory>
 #include "log.h"
 #include "segment.h"
 #include "transfer.h"
@@ -38,9 +39,11 @@ struct TransferInfo
     bool                        verify;             // verify transfer
 };
 
+/* Convenience type for a transfer info pointer */
+typedef std::shared_ptr<TransferInfo> TransferInfoPtr;
 
 /* Convenience type for a transfer info list */
-typedef std::list<TransferInfo> TransferInfoList;
+typedef std::list<TransferInfoPtr> TransferInfoList;
 
 
 /* Parse command line options and load settings */

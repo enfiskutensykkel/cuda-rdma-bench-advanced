@@ -21,13 +21,10 @@ int runBenchmarkServer(SegmentList& segments)
     {
         for (SegmentPtr segment: segments)
         {
-            // Fill segment buffer
-
-            // Create data interrupt
-           
             // Export segments on all adapters
             for (uint adapter: segment->adapters)
             {
+                // Set available on adapter
                 Log::debug("Exporting segment %u on adapter %u...", segment->id, adapter);
                 segment->setAvailable(adapter);
             }
