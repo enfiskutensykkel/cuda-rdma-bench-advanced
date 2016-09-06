@@ -43,6 +43,9 @@ class Segment
         // Set segment available on the specified adapter
         void setAvailable(uint adapter);
 
+        // Set segment unavailable on the specified adapter
+        void setUnavailable(uint adapter);
+
         // Get SISCI handle to local segment
         sci_local_segment_t getSegment() const;
 

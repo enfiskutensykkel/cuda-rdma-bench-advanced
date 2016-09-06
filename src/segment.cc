@@ -3,6 +3,7 @@
 #include <memory>
 #include <map>
 #include <stdexcept>
+#include <string>
 #include <sisci_api.h>
 #include <sisci_types.h>
 #include "segment.h"
@@ -27,7 +28,7 @@ struct SegmentImpl
 
 
 static sci_callback_action_t 
-connectEvent(SegmentImpl* info, sci_local_segment_t segment, sci_segment_cb_reason_t reason, uint nodeId, uint adapter, sci_error_t err)
+connectEvent(SegmentImpl* info, sci_local_segment_t, sci_segment_cb_reason_t reason, uint nodeId, uint adapter, sci_error_t err)
 {
     if (err != SCI_ERR_OK)
     {
@@ -35,24 +36,19 @@ connectEvent(SegmentImpl* info, sci_local_segment_t segment, sci_segment_cb_reas
     }
 
     // Report state
-    if (reason == SCI_CB_CONNECT)
+    switch (reason)
     {
-        Log::info("Segment %u got connection from remote node %u on adapter %u", info->id, nodeId, adapter);
-    }
-    else if (reason == SCI_CB_DISCONNECT)
-    {
-        Log::info("Remote node %u disconnected from segment %u", nodeId, info->id);
-    }
+        case SCI_CB_CONNECT:
+            Log::info("Segment %u got connection from remote node %u on adapter %u", info->id, nodeId, adapter);
+            break;
 
-    // Try to connect to remote interrupt
-    sci_desc_t sd;
-    if ((err = openDescriptor(sd)) != SCI_ERR_OK)
-    {
-        Log::error("Failed to open descriptor in callback: %s", scierrstr(err));
-        return SCI_CALLBACK_CONTINUE;
-    }
+        case SCI_CB_DISCONNECT:
+            Log::info("Remote node %u disconnected from segment %u", nodeId, info->id);
+            break;
 
-    closeDescriptor(sd);
+        default:
+            break;
+    }
 
     return SCI_CALLBACK_CONTINUE;
 }
@@ -145,9 +141,11 @@ Segment::Segment(shared_ptr<SegmentImpl> impl, const std::set<uint>& adapters)
 {
     sci_error_t err;
 
-    // Prepare segment on all adapters
     for (uint adapter: adapters)
     {
+        // Create data interrupt on adapter
+
+        // Prepare segment on adapter
         SCIPrepareSegment(impl->segment, adapter, 0, &err);
         if (err != SCI_ERR_OK)
         {
@@ -218,28 +216,66 @@ SegmentPtr Segment::createWithPhysMem(uint id, size_t size, const std::set<uint>
 
 void Segment::setAvailable(uint adapter)
 {
-    sci_error_t err;
-
-    // Get local node id
-    uint localId;
-    SCIGetLocalNodeId(adapter, &localId, 0, &err);
-    if (err != SCI_ERR_OK)
+    auto exported = impl->exports.find(adapter);
+    if (exported == impl->exports.end())
     {
-        Log::warn("Failed to get local node id for adapter %u", adapter);
+        throw std::string("Segment is not prepared on adapter ") + std::to_string(adapter);
     }
 
-    // Set segment available
-    SCISetSegmentAvailable(impl->segment, adapter, 0, &err);
-    if (err != SCI_ERR_OK)
+    if (!exported->second)
     {
-        Log::error("Failed to set segment %u available on adapter %u: %s", id, adapter, scierrstr(err));
-        throw runtime_error(scierrstr(err));
+        sci_error_t err;
+
+        // Get local node id
+        uint localId;
+        SCIGetLocalNodeId(adapter, &localId, 0, &err);
+        if (err != SCI_ERR_OK)
+        {
+            Log::warn("Failed to get local node id for adapter %u", adapter);
+        }
+
+        // Set segment available
+        SCISetSegmentAvailable(impl->segment, adapter, 0, &err);
+        if (err != SCI_ERR_OK)
+        {
+            Log::error("Failed to set segment %u available on adapter %u: %s", id, adapter, scierrstr(err));
+            throw runtime_error(scierrstr(err));
+        }
+
+        // Save export state
+        exported->second = true;
+
+        Log::info("Segment %u is available on node %u", id, localId);
+    }
+}
+
+
+void Segment::setUnavailable(uint adapter)
+{
+    auto exported = impl->exports.find(adapter);
+    if (exported == impl->exports.end())
+    {
+        throw std::string("Segment is not prepared on adapter ") + std::to_string(adapter);
     }
 
-    // Save export state
-    impl->exports[adapter] = true;
+    if (exported->second)
+    {
+        sci_error_t err;
 
-    Log::info("Segment %u is available on node %u", id, localId);
+        Log::debug("Setting segment %u unavailable on adapter %u...", id, adapter);
+        do
+        {
+            SCISetSegmentUnavailable(impl->segment, adapter, 0, &err);
+        }
+        while (err == SCI_ERR_BUSY);
+
+        if (err != SCI_ERR_OK)
+        {
+            Log::error("Failed to set segment %u unavailable on adapter %u: %s", id, adapter, scierrstr(err));
+        }
+
+        exported->second = false;
+    }
 }
 
 

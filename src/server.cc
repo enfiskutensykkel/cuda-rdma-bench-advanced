@@ -48,7 +48,16 @@ int runBenchmarkServer(SegmentList& segments)
     Log::info("Running server...");
     while (keepRunning);
 
-    Log::info("Shutting down server");
+    // Stop server
+    Log::info("Shutting down server...");
+    for (SegmentPtr segment: segments)
+    {
+        for (uint adapter: segment->adapters)
+        {
+            segment->setUnavailable(adapter);
+        }
+    }
+
 
     return 0;
 }
