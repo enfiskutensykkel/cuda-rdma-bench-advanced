@@ -1,8 +1,10 @@
 #include <string>
 #include <stdexcept>
 #include <signal.h>
-#include "benchmark.h"
+#include <vector>
+#include "interrupt.h"
 #include "segment.h"
+#include "benchmark.h"
 #include "log.h"
 
 
@@ -15,8 +17,9 @@ static void stopServer(int)
 }
 
 
-int runBenchmarkServer(SegmentList& segments)
+int runBenchmarkServer(SegmentList& segments, Callback interruptHandler)
 {
+    std::vector<InterruptPtr> interrupts;
     try
     {
         for (SegmentPtr segment: segments)
@@ -24,6 +27,10 @@ int runBenchmarkServer(SegmentList& segments)
             // Export segments on all adapters
             for (uint adapter: segment->adapters)
             {
+                // Create interrupt
+                InterruptPtr interrupt(new Interrupt(segment->id, adapter, interruptHandler));
+                interrupts.push_back(interrupt);
+
                 // Set available on adapter
                 Log::debug("Exporting segment %u on adapter %u...", segment->id, adapter);
                 segment->setAvailable(adapter);

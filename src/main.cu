@@ -6,10 +6,11 @@
 #include <cuda.h>
 #include <sisci_types.h>
 #include <sisci_api.h>
-#include "util.h"
+#include "interrupt.h"
 #include "segment.h"
 #include "transfer.h"
 #include "benchmark.h"
+#include "util.h"
 #include "log.h"
 #include "args.h"
 
@@ -131,10 +132,10 @@ int main(int argc, char** argv)
         return 2;
     }
 
-    // Allocate buffers and create segments
     SegmentList segments;
     BufferMap buffers;
 
+    // Allocate buffers and create segments
     try
     {
         createSegments(segmentSpecs, segments, buffers);
@@ -169,11 +170,12 @@ int main(int argc, char** argv)
 
     if (transfers.empty())
     {
-        // Create local interrupt
-
+        Callback handler = [&buffers](const InterruptEvent& event, const void* data, size_t length) {
+            
+        };
 
         // No transfers specified, run as server
-        if (runBenchmarkServer(segments) != 0)
+        if (runBenchmarkServer(segments, handler) != 0)
         {
         }
     }

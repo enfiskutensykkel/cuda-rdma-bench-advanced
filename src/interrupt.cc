@@ -48,7 +48,8 @@ interruptCallback(InterruptImpl* intrData, sci_local_data_interrupt_t, void* dat
             .timestamp = currentTime()
         };
 
-        intrData->callback(event, intrData->userData, dataPtr, (size_t) length - sizeof(uint32_t));
+        //intrData->callback(event, intrData->userData, dataPtr, (size_t) length - sizeof(uint32_t));
+        intrData->callback(event, dataPtr, (size_t) length - sizeof(uint32_t));
     }
 
     return SCI_CALLBACK_CONTINUE;
@@ -98,7 +99,7 @@ static shared_ptr<InterruptImpl> createInterruptImpl(uint interruptNo, uint adap
 }
 
 
-Interrupt::Interrupt(uint interruptNo, uint adapter, Callback cb, void* userData)
+Interrupt::Interrupt(uint interruptNo, uint adapter, Callback cb)
     :
     no(interruptNo),
     adapter(adapter),
@@ -111,8 +112,6 @@ Interrupt::Interrupt(uint interruptNo, uint adapter, Callback cb, void* userData
     {
         throw runtime_error(scierrstr(err));
     }
-
-    impl->userData = userData;
 
     // Create data interrupt
     SCICreateDataInterrupt(impl->sd, &impl->intr, adapter, &impl->intno, (sci_cb_data_interrupt_t) &interruptCallback, impl.get(), SCI_FLAG_USE_CALLBACK | SCI_FLAG_FIXED_INTNO, &err);

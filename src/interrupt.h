@@ -15,7 +15,7 @@ struct InterruptEvent
 };
 
 
-typedef std::function<void (const InterruptEvent& event, void* userData, const void* data, size_t length)> Callback;
+typedef std::function<void (const InterruptEvent& event, const void* data, size_t length)> Callback;
 
 
 struct InterruptImpl;
@@ -26,10 +26,14 @@ class Interrupt
         const uint no;
         const uint adapter;
 
-        Interrupt(uint adapter, uint number, Callback callback, void* userData);
+        Interrupt(uint adapter, uint number, Callback callback);
 
     private:
         std::shared_ptr<InterruptImpl> impl;
 };
+
+
+typedef std::shared_ptr<Interrupt> InterruptPtr;
+
 
 #endif
