@@ -133,13 +133,12 @@ static size_t parseNumber(const string& key, const string& value)
 }
 
 
-static void parseSegmentString(const char* segmentString, SegmentInfoMap& segments)
+static void parseSegmentString(const char* segmentString, SegmentSpecMap& segments)
 {
-    SegmentInfo segment;
+    SegmentSpec segment;
     segment.segmentId = 0;
     segment.deviceId = NO_DEVICE;
     segment.size = 0;
-    segment.deviceBuffer = nullptr;
 
     bool suppliedId = false;
 
@@ -184,7 +183,7 @@ static void parseSegmentString(const char* segmentString, SegmentInfoMap& segmen
     }
 
     // Check if segment is already specified
-    SegmentInfoMap::iterator i = segments.lower_bound(segment.segmentId);
+    SegmentSpecMap::iterator i = segments.lower_bound(segment.segmentId);
     if (i == segments.end() || segment.segmentId < i->first)
     {
         segments.insert(i, std::make_pair(segment.segmentId, segment));
@@ -196,9 +195,9 @@ static void parseSegmentString(const char* segmentString, SegmentInfoMap& segmen
 }
 
 
-static void parseTransferString(const char* transferString, TransferInfoList& transfers)
+static void parseTransferString(const char* transferString, TransferSpecList& transfers)
 {
-    TransferInfoPtr transfer(new TransferInfo);
+    TransferSpecPtr transfer(new TransferSpec);
     transfer->localSegmentId = 0;
     transfer->remoteNodeId = 8;
     transfer->remoteSegmentId = 0;
@@ -308,7 +307,7 @@ static Log::Level parseVerbosity(const char* argument, uint level)
 
 
 /* Parse command line options */
-void parseArguments(int argc, char** argv, SegmentInfoMap& segments, TransferInfoList& transfers, Log::Level& logLevel)
+void parseArguments(int argc, char** argv, SegmentSpecMap& segments, TransferSpecList& transfers, Log::Level& logLevel)
 {
     int option;
     int index;
@@ -358,7 +357,7 @@ void parseArguments(int argc, char** argv, SegmentInfoMap& segments, TransferInf
     
     if (transfers.empty())
     {
-        for (SegmentInfoMap::const_iterator it = segments.begin(); it != segments.end(); ++it)
+        for (SegmentSpecMap::const_iterator it = segments.begin(); it != segments.end(); ++it)
         {
             if (it->second.adapters.empty())
             {

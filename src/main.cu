@@ -1,5 +1,7 @@
+#include <functional>
 #include <vector>
 #include <map>
+#include <memory>
 #include <cstdio>
 #include <cuda.h>
 #include <sisci_types.h>
@@ -11,39 +13,52 @@
 #include "log.h"
 #include "args.h"
 
+typedef std::shared_ptr<void> BufferPtr;
+typedef std::map<uint, BufferPtr> BufferMap;
+
 
 /* Iterate over segment infos and create segments accordingly */
-static void createSegments(SegmentInfoMap& segmentInfos, SegmentList& segments)
+static void createSegments(SegmentSpecMap& segmentSpecs, SegmentList& segments, BufferMap& buffers)
 {
-    for (auto segmentIt = segmentInfos.begin(); segmentIt != segmentInfos.end(); ++segmentIt)
+    for (auto segmentIt = segmentSpecs.begin(); segmentIt != segmentSpecs.end(); ++segmentIt)
     {
-        SegmentInfo& info = segmentIt->second;
+        SegmentSpec& spec = segmentIt->second;
         SegmentPtr segment;
 
-        if (info.deviceId != NO_DEVICE)
+        if (spec.deviceId != NO_DEVICE)
         {
-            cudaError_t err = cudaSetDevice(info.deviceId);
+            const int deviceId = spec.deviceId;
+
+            cudaError_t err = cudaSetDevice(deviceId);
             if (err != cudaSuccess)
             {
-                Log::error("Failed to initialize GPU %d: %s", info.deviceId, cudaGetErrorString(err));
+                Log::error("Failed to initialize GPU %d: %s", deviceId, cudaGetErrorString(err));
                 throw std::string(cudaGetErrorString(err));
             }
                 
-            err = cudaMalloc(&info.deviceBuffer, info.size);
+            void* bufferPtr;
+            err = cudaMalloc(&bufferPtr, spec.size);
             if (err != cudaSuccess)
             {
-                Log::error("Failed to allocate buffer on GPU %d: %s", info.deviceId, cudaGetErrorString(err));
+                Log::error("Failed to allocate buffer on GPU %d: %s", deviceId, cudaGetErrorString(err));
                 throw std::string(cudaGetErrorString(err));
             }
 
-            Log::debug("Allocated buffer on GPU %d", info.deviceId);
+            Log::debug("Allocated buffer on GPU %d (%p)", deviceId, bufferPtr);
 
-            void* devicePtr = getDevicePtr(info.deviceBuffer);
-            segment = Segment::createWithPhysMem(info.segmentId, info.size, info.adapters, info.deviceId, devicePtr);
+            auto release = [deviceId](void* buffer) {
+                Log::debug("Freeing GPU buffer on device %d (%p)", deviceId, buffer);
+                cudaFree(buffer);
+            };
+
+            buffers[spec.segmentId] = BufferPtr(bufferPtr, release);
+
+            void* devicePtr = getDevicePtr(bufferPtr);
+            segment = Segment::createWithPhysMem(spec.segmentId, spec.size, spec.adapters, spec.deviceId, devicePtr);
         }
         else
         {
-            segment = Segment::create(info.segmentId, info.size, info.adapters);
+            segment = Segment::create(spec.segmentId, spec.size, spec.adapters);
         }
 
         segments.push_back(segment);
@@ -51,24 +66,10 @@ static void createSegments(SegmentInfoMap& segmentInfos, SegmentList& segments)
 }
 
 
-/* Iterate over segment infos and free buffers */
-static void freeBufferMemory(const SegmentInfoMap& segmentInfos)
-{
-    for (auto segmentIt = segmentInfos.begin(); segmentIt != segmentInfos.end(); ++segmentIt)
-    {
-        if (segmentIt->second.deviceBuffer != nullptr)
-        {
-            Log::debug("Freeing buffer on GPU %d", segmentIt->second.deviceId);
-            cudaFree(segmentIt->second.deviceBuffer);
-        }
-    }
-}
-
-
 /* Iterate over transfer infos and create transfers */
-static void createTransfers(const TransferInfoList& transferInfos, TransferList& transfers, const SegmentList& segments)
+static void createTransfers(const TransferSpecList& transferSpecs, TransferList& transfers, const SegmentList& segments)
 {
-    for (const auto info: transferInfos)
+    for (const auto info: transferSpecs)
     {
         // Find corresponding local segment
         SegmentPtr localSegment(nullptr);
@@ -101,16 +102,14 @@ static void createTransfers(const TransferInfoList& transferInfos, TransferList&
 
 int main(int argc, char** argv)
 {
-    SegmentList segments;
-    TransferList transfers;
-    SegmentInfoMap segmentInfos;
-    TransferInfoList transferInfos;
+    SegmentSpecMap segmentSpecs;
+    TransferSpecList transferSpecs;
 
     // Parse command line arguments
     try
     {
         Log::Level logLevel = Log::Level::ERROR;
-        parseArguments(argc, argv, segmentInfos, transferInfos, logLevel);
+        parseArguments(argc, argv, segmentSpecs, transferSpecs, logLevel);
         Log::init(stderr, logLevel);
     }
     catch (int error)
@@ -133,45 +132,46 @@ int main(int argc, char** argv)
     }
 
     // Allocate buffers and create segments
+    SegmentList segments;
+    BufferMap buffers;
+
     try
     {
-        createSegments(segmentInfos, segments);
+        createSegments(segmentSpecs, segments, buffers);
     }
     catch (const std::string& error)
     {
         fprintf(stderr, "Failed to create segments: %s\n", error.c_str());
-        segments.clear();
-        freeBufferMemory(segmentInfos);
         return 1;
     }
     catch (const std::runtime_error& error)
     {
         fprintf(stderr, "Failed to create segments: %s\n", error.what());
-        segments.clear();
-        freeBufferMemory(segmentInfos);
         return 2;
     }
 
     // Create transfers
+    TransferList transfers;
     try
     {
-        createTransfers(transferInfos, transfers, segments);
+        createTransfers(transferSpecs, transfers, segments);
     }
     catch (const std::string& error)
     {
         fprintf(stderr, "Failed to create transfers: %s\n", error.c_str());
-        freeBufferMemory(segmentInfos);
         return 1;
     }
     catch (const std::runtime_error& error)
     {
         fprintf(stderr, "Failed to create transfers: %s\n", error.what());
-        freeBufferMemory(segmentInfos);
         return 2;
     }
 
     if (transfers.empty())
     {
+        // Create local interrupt
+
+
         // No transfers specified, run as server
         if (runBenchmarkServer(segments) != 0)
         {
@@ -192,7 +192,7 @@ int main(int argc, char** argv)
     segments.clear();
 
     // Free any GPU buffers
-    freeBufferMemory(segmentInfos);
+    buffers.clear();
 
     // Terminate SISCI API
     SCITerminate();
