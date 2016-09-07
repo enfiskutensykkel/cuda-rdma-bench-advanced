@@ -6,8 +6,8 @@
 #include <sisci_types.h>
 #include "segment.h"
 #include "transfer.h"
-#include "log.h"
 #include "util.h"
+#include "log.h"
 
 using std::runtime_error;
 using std::shared_ptr;

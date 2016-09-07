@@ -50,10 +50,8 @@ class Segment
         sci_local_segment_t getSegment() const;
 
     private:
-        mutable std::shared_ptr<SegmentImpl> impl;
+        std::shared_ptr<SegmentImpl> impl;
         Segment(std::shared_ptr<SegmentImpl> impl, const std::set<uint>& adapters);
 };
-
-
 
 #endif

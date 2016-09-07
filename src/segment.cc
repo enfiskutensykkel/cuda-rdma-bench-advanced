@@ -141,11 +141,9 @@ Segment::Segment(shared_ptr<SegmentImpl> impl, const std::set<uint>& adapters)
 {
     sci_error_t err;
 
+    // Prepare segment on adapters
     for (uint adapter: adapters)
     {
-        // Create data interrupt on adapter
-
-        // Prepare segment on adapter
         SCIPrepareSegment(impl->segment, adapter, 0, &err);
         if (err != SCI_ERR_OK)
         {
@@ -262,6 +260,7 @@ void Segment::setUnavailable(uint adapter)
     {
         sci_error_t err;
 
+        // Set unavailable
         Log::debug("Setting segment %u unavailable on adapter %u...", id, adapter);
         do
         {
@@ -274,6 +273,7 @@ void Segment::setUnavailable(uint adapter)
             Log::error("Failed to set segment %u unavailable on adapter %u: %s", id, adapter, scierrstr(err));
         }
 
+        // Update export state
         exported->second = false;
     }
 }

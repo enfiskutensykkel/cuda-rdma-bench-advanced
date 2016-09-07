@@ -28,7 +28,7 @@ class Transfer
 //        void setLocalGlobal(bool global);
 
     private:
-        mutable std::shared_ptr<TransferImpl> impl;
+        std::shared_ptr<TransferImpl> impl;
 };
 
 
