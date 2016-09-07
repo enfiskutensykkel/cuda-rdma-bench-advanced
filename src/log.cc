@@ -177,12 +177,24 @@ static inline void report(const char* prefix, size_t len, const char* format, va
 }
 
 
-void Log::error(const char* format, ...)
+void Log::abort(const char* format, ...)
 {
     va_list args;
     va_start(args, format);
-    report("ERROR", 5, format, args);
+    report("ABORT", 5, format, args);
     va_end(args);
+}
+
+
+void Log::error(const char* format, ...)
+{
+    if (logLevel >= Log::Level::ERROR || logFile != stderr)
+    {
+        va_list args;
+        va_start(args, format);
+        report("ERROR", 5, format, args);
+        va_end(args);
+    }
 }
 
 

@@ -127,7 +127,7 @@ int main(int argc, char** argv)
     SCIInitialize(0, &sciError);
     if (sciError != SCI_ERR_OK)
     {
-        fprintf(stderr, "Failed to initialize SISCI API\n");
+        Log::abort("Failed to initialize SISCI API");
         return 2;
     }
 
@@ -141,12 +141,12 @@ int main(int argc, char** argv)
     }
     catch (const std::string& error)
     {
-        fprintf(stderr, "Failed to create segments: %s\n", error.c_str());
+        Log::abort("Failed to create segments: %s", error.c_str());
         return 1;
     }
     catch (const std::runtime_error& error)
     {
-        fprintf(stderr, "Failed to create segments: %s\n", error.what());
+        Log::abort("Failed to create segments: %s", error.what());
         return 2;
     }
 
@@ -158,12 +158,12 @@ int main(int argc, char** argv)
     }
     catch (const std::string& error)
     {
-        fprintf(stderr, "Failed to create transfers: %s\n", error.c_str());
+        Log::abort("Failed to create transfers: %s", error.c_str());
         return 1;
     }
     catch (const std::runtime_error& error)
     {
-        fprintf(stderr, "Failed to create transfers: %s\n", error.what());
+        Log::abort("Failed to create transfers: %s", error.what());
         return 2;
     }
 
@@ -175,7 +175,6 @@ int main(int argc, char** argv)
         // No transfers specified, run as server
         if (runBenchmarkServer(segments) != 0)
         {
-            fprintf(stderr, "SERVER FAILED\n");
         }
     }
     else
@@ -183,7 +182,6 @@ int main(int argc, char** argv)
         // Run benchmark client
         if (runBenchmarkClient(segments, transfers) != 0)
         {
-            fprintf(stderr, "CLIENT FAILED\n");
         }
     }
 

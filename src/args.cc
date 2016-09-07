@@ -276,6 +276,10 @@ static Log::Level parseVerbosity(const char* argument, uint level)
         // No argument given, increase verbosity level
         return level < Log::Level::DEBUG ? (Log::Level) (level + 1) : Log::Level::DEBUG;
     }
+    else if (strcmp(argument, "abort") == 0 || strcmp(argument, "none") == 0)
+    {
+        return Log::Level::ABORT;
+    }
     else if (strcmp(argument, "error") == 0)
     {
         return Log::Level::ERROR;

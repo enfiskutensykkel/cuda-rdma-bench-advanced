@@ -11,16 +11,18 @@ namespace Log
     /* Different log levels */
     enum Level : unsigned int
     {
-        ERROR   = 0,
-        WARN    = 1,
-        INFO    = 2,
-        DEBUG   = 3
+        ABORT   = 0,
+        ERROR   = 1,
+        WARN    = 2,
+        INFO    = 3,
+        DEBUG   = 4
     };
-
 
     /* Initialize log file */
     void init(FILE* logfile, Level loglevel);
 
+    /* Report a critical error */
+    void abort(const char* format, ...);
 
     /* Report an error condition */
     void error(const char* format, ...);
