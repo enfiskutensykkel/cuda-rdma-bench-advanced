@@ -131,12 +131,13 @@ static shared_ptr<SegmentImpl> createSegmentImpl(uint id, size_t size)
 }
 
 
-Segment::Segment(shared_ptr<SegmentImpl> impl, const std::set<uint>& adapters) 
+Segment::Segment(shared_ptr<SegmentImpl> impl, const std::set<uint>& adapters, uint flags) 
     :
     id(impl->id),
     size(impl->size),
     adapters(adapters),
     physMem(impl->devInfo != nullptr),
+    flags(flags),
     impl(impl)
 {
     sci_error_t err;
@@ -160,7 +161,7 @@ Segment::Segment(shared_ptr<SegmentImpl> impl, const std::set<uint>& adapters)
 }
 
 
-SegmentPtr Segment::create(uint id, size_t size, const std::set<uint>& adapters)
+SegmentPtr Segment::create(uint id, size_t size, const std::set<uint>& adapters, uint flags)
 {
     sci_error_t err;
 
@@ -168,7 +169,7 @@ SegmentPtr Segment::create(uint id, size_t size, const std::set<uint>& adapters)
     shared_ptr<SegmentImpl> impl = createSegmentImpl(id, size);
 
     // Create local segment
-    SCICreateSegment(impl->sd, &impl->segment, id, size, (sci_cb_local_segment_t) &connectEvent, impl.get(), SCI_FLAG_USE_CALLBACK, &err);
+    SCICreateSegment(impl->sd, &impl->segment, id, size, (sci_cb_local_segment_t) &connectEvent, impl.get(), flags | SCI_FLAG_USE_CALLBACK, &err);
     if (err != SCI_ERR_OK)
     {
         impl->segment = nullptr;
@@ -176,11 +177,11 @@ SegmentPtr Segment::create(uint id, size_t size, const std::set<uint>& adapters)
         throw runtime_error(scierrstr(err));
     }
 
-    return SegmentPtr(new Segment(impl, adapters));
+    return SegmentPtr(new Segment(impl, adapters, flags));
 }
 
 
-SegmentPtr Segment::createWithPhysMem(uint id, size_t size, const std::set<uint>& adapters, int gpu, void* ptr)
+SegmentPtr Segment::createWithPhysMem(uint id, size_t size, const std::set<uint>& adapters, int gpu, void* ptr, uint flags)
 {
     sci_error_t err;
 
@@ -188,7 +189,7 @@ SegmentPtr Segment::createWithPhysMem(uint id, size_t size, const std::set<uint>
     shared_ptr<SegmentImpl> impl = createSegmentImpl(id, size);
 
     // Create local segment
-    SCICreateSegment(impl->sd, &impl->segment, id, size, (sci_cb_local_segment_t) &connectEvent, impl.get(), SCI_FLAG_EMPTY | SCI_FLAG_USE_CALLBACK, &err);
+    SCICreateSegment(impl->sd, &impl->segment, id, size, (sci_cb_local_segment_t) &connectEvent, impl.get(), flags | SCI_FLAG_EMPTY | SCI_FLAG_USE_CALLBACK, &err);
     if (err != SCI_ERR_OK)
     {
         impl->segment = nullptr;
@@ -208,7 +209,7 @@ SegmentPtr Segment::createWithPhysMem(uint id, size_t size, const std::set<uint>
     impl->devInfo = new DeviceInfo;
     getDeviceInfo(gpu, *impl->devInfo);
 
-    return SegmentPtr(new Segment(impl, adapters));
+    return SegmentPtr(new Segment(impl, adapters, flags));
 }
 
 

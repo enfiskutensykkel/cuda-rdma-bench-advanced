@@ -28,8 +28,7 @@ int runBenchmarkServer(SegmentList& segments, Callback interruptHandler)
             for (uint adapter: segment->adapters)
             {
                 // Create interrupt
-                InterruptPtr interrupt(new Interrupt(segment->id, adapter, interruptHandler));
-                interrupts.push_back(interrupt);
+                interrupts.push_back(InterruptPtr(new Interrupt(segment->id, adapter, interruptHandler)));
 
                 // Set available on adapter
                 Log::debug("Exporting segment %u on adapter %u...", segment->id, adapter);
@@ -64,7 +63,6 @@ int runBenchmarkServer(SegmentList& segments, Callback interruptHandler)
             segment->setUnavailable(adapter);
         }
     }
-
 
     return 0;
 }

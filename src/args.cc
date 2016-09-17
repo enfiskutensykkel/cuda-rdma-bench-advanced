@@ -1,12 +1,24 @@
+#include <boost/regex.hpp>
+#include <map>
+#include <vector>
 #include <string>
-#include <getopt.h>
 #include <cstring>
+#include <getopt.h>
+#include <sisci_types.h>
+#include <sisci_api.h>
 #include "log.h"
+#include "util.h"
 #include "transfer.h"
 #include "segment.h"
 #include "args.h"
 
 using std::string;
+using std::to_string;
+using std::vector;
+
+
+/* Convenience type for extracting key--value pairs from specification strings */
+typedef std::map<std::string, std::vector<std::string> > KVMap;
 
 
 /* Print a list of enabled CUDA devices */
@@ -23,8 +35,6 @@ static struct option options[] =
     { .name = "help", .has_arg = false, .flag = nullptr, .val = 'h' },
     { .name = nullptr, .has_arg = false, .flag = nullptr, .val = 0 }
 };
-
-//ls=0,rn=4,rs=0,pull,ro=0:lo=0:sz=10
 
 
 /* Show program usage text */
@@ -48,20 +58,23 @@ static void giveUsage(const char* programName)
             "    size=<size>                    specify size of the segment [default is 30 MiB]\n"
             "    gpu=<gpu>                      specify local GPU to host buffer on (omit to host buffer in RAM)\n"
             "    a=<no>                         export segment on specified adapter (required for servers)\n"
+            "    global                         create segment with SCI_FLAG_DMA_GLOBAL\n"
             "\nTransfer string\n"
             "    ls=<id>                        local segment id (required)\n"
             "    rn=<id>                        remote node id (required)\n"
             "    rs=<id>                        remote segment id (required)]\n"
-            "    transfer=<vector entry>        specify a DMA vector entry (required)\n"
+            "    transfer=<vector entry>        specify a DMA vector entry\n"
             "    a=<no>                         local adapter for remote node [default is 0]\n"
-            "    pull                           read data from remote buffer instead of writing\n"
-            "    repeat=<count>                 number of times to repeat transfer [default is 1]\n"
-            "    verify                         calculate checksum of segments after transfer\n"
+            "    verify                         transfer entire segment and calculate checksum\n"
+            "    pull                           read data from remote buffer instead of writing (SCI_FLAG_DMA_READ)\n"
+            "    global                         set SCI_FLAG_DMA_GLOBAL\n"
+            "    sysdma                         set SCI_FLAG_DMA_SYSDMA\n"
             "\nVector entry format\n"
-            "        lo=<offset>:ro=<offset>:size=<size>\n\n"
-            "    lo=<offset>                    offset into local segment\n"
-            "    ro=<offset>                    offset into remote segment\n"
-            "    size=<size>                    transfer size\n"
+            "        <local offset>:<remote offset>:<size>:<repeat>\n\n"
+            "    <local offset>                 offset into local segment\n"
+            "    <remote offset>                offset into remote segment\n"
+            "    <size>                         transfer size\n"
+            "    <repeat>                       number of times to repeat vector entry\n"
             "\nOther options\n"
             "  --verbosity      <level>         specify \"error\", \"warn\", \"info\" or \"debug\" log level\n"
             "  --log            <filename>      use a log file instead of stderr for logging\n"
@@ -73,199 +86,229 @@ static void giveUsage(const char* programName)
 }
 
 
-/* Helper function for retrieving key--value pairs from option string */
-static const char* nextToken(const char* str, string& key, string& value)
+static void extractKeyValuePairs(const string& str, KVMap& kvMap)
 {
-    bool readValue = false;
+    static boost::regex expr(",?(?<key>[^=,]+)(=(?<value>[^,]+))?");
+    boost::smatch match;
 
-    while (true)
+    auto start = str.begin();
+    auto end = str.end();
+
+    while (boost::regex_search(start, end, match, expr))
     {
-        switch (*str)
-        {
-            case '=':
-                if (readValue)
-                {
-                    throw string("Invalid string syntax");
-                }
-                readValue = true;
-                break;
-
-            case ',':
-                return str + 1;
-
-            case '\0':
-                return str;
-
-            default:
-                if (readValue)
-                {
-                    value += *str;
-                }
-                else
-                {
-                    key += *str;
-                }
-                break;
-        }
-
-        ++str;
+        kvMap[match["key"].str()].push_back(match["value"].str());
+        start = match[4].second;
     }
 }
 
 
-/* Helper function for reading a number from a string */
-static size_t parseNumber(const string& key, const string& value)
+static inline size_t parseNumber(const string& key, const string& value)
 {
     if (value.empty())
     {
-        throw string("String key '") + key + string("' expects a numerical value but got nothing");
+        throw "String key `" + key + "' expects a numerical argument but got nothing";
     }
 
-    size_t idx;
-    size_t v = std::stoul(value, &idx, 0);
-
-    if (idx != value.size())
+    try
     {
-        throw string("String key '") + key + string("' expects a numerical value but got ``") + value + "''";
+        return std::stoul(value, nullptr, 0);
     }
-
-    return v;
+    catch (const std::invalid_argument& e)
+    {
+        throw "String key `" + key + "' expects a numerical argument: ``" + value + "''";
+    }
 }
 
 
-static void parseSegmentString(const char* segmentString, SegmentSpecMap& segments)
+static void parseSegmentString(const string& segmentString, SegmentSpecMap& segments)
 {
-    SegmentSpec segment;
-    segment.segmentId = 0;
-    segment.deviceId = NO_DEVICE;
-    segment.size = 0;
+    SegmentSpecPtr segment(new SegmentSpec);
+    segment->segmentId = 0;
+    segment->deviceId = NO_DEVICE;
+    segment->size = 0;
+    segment->flags = 0;
 
-    bool suppliedId = false;
+    bool providedId = false;
 
-    // Parse segment string
-    while (*segmentString != '\0')
+    KVMap kvMap;
+    extractKeyValuePairs(segmentString, kvMap);
+
+    for (auto it = kvMap.begin(); it != kvMap.end(); ++it)
     {
-        string key, value;
-        segmentString = nextToken(segmentString, key, value);
-
-        if (key == "local-segment-id" || key == "local-segment" || key == "segment-id" || key == "ls" || key == "id")
+        const string& key = it->first;
+    
+        if (key == "local-segment-id" || key == "local-segment" || key == "local-id" || key == "lid" || key == "id" || key == "ls")
         {
-            segment.segmentId = parseNumber(key, value);
-            suppliedId = true;
+            segment->segmentId = parseNumber(key, it->second.back());
+            providedId = true;
         }
-        else if (key == "length" || key == "len" || key == "l" || key == "size" || key == "sz" || key == "s")
+        else if (key == "length" || key == "len" || key == "n" || key == "size" || key == "sz" || key == "s")
         {
-            segment.size = parseNumber(key, value);
+            segment->size = parseNumber(key, it->second.back());
         }
         else if (key == "adapter" || key == "adapt" || key == "a" || key == "export")
         {
-            segment.adapters.insert(parseNumber(key, value));
+            for (const string& adapter : it->second)
+            {
+                segment->adapters.insert(parseNumber(key, adapter));
+            }
         }
         else if (key == "device" || key == "dev" || key == "gpu" || key == "g")
         {
-            segment.deviceId = parseNumber(key, value);
+            segment->deviceId = parseNumber(key, it->second.back());
         }
-        else if (!key.empty())
+        else if (key == "global")
         {
-            throw string("Unknown string key: ``") + key + "''";
+            segment->flags |= SCI_FLAG_DMA_GLOBAL;
+        }
+        else 
+        {
+            throw string("Unknown segment string key: ``") + key + "''";
         }
     }
 
-    // Some sanity checking
-    if (!suppliedId)
+    // Check if segment id was specified
+    if (!providedId)
     {
         throw string("Local segment id must be specified");
     }
 
-    if (segment.size == 0)
+    // Check if segment size is specified
+    if (segment->size == 0)
     {
         throw string("Local segment size must be specified");
     }
 
     // Check if segment is already specified
-    SegmentSpecMap::iterator i = segments.lower_bound(segment.segmentId);
-    if (i == segments.end() || segment.segmentId < i->first)
+    SegmentSpecMap::iterator i = segments.lower_bound(segment->segmentId);
+    if (i == segments.end() || segment->segmentId < i->first)
     {
-        segments.insert(i, std::make_pair(segment.segmentId, segment));
+        segments.insert(i, std::make_pair(segment->segmentId, segment));
     }
     else
     {
-        throw string("Local segment ") + std::to_string(segment.segmentId) + " was already specified";
+        throw string("Local segment ") + to_string(segment->segmentId) + " was already specified";
     }
 }
 
 
-static void parseTransferString(const char* transferString, TransferSpecList& transfers)
+static void parseTransferVectorEntryString(const vector<string>& entryStrings, DmaVector& vector)
 {
-    TransferSpecPtr transfer(new TransferSpec);
+    static boost::regex expr("^(?<loff>[^:]+):(?<roff>[^:]+):(?<size>[^:]+):(?<repeat>.+)$");
+    boost::smatch match;
+
+    for (const string& entryString : entryStrings)
+    {
+        dis_dma_vec_t entry;
+
+        if (!boost::regex_match(entryString, match, expr))
+        {
+            throw "Invalid vector entry string: ``" + entryString + "''";
+        }
+
+        string nullstr;
+        entry.local_offset = parseNumber(nullstr, match["loff"].str());
+        entry.remote_offset = parseNumber(nullstr, match["roff"].str());
+        entry.size = parseNumber(nullstr, match["size"].str());
+        entry.flags = 0;
+
+        for (size_t i = 0, n = parseNumber(nullstr, match["repeat"].str()); i < n; ++i)
+        {
+            vector.push_back(entry);
+        }
+    }
+}
+
+
+static void parseTransferString(const string& transferString, DmaJobList& transfers)
+{
+    DmaJobPtr transfer(new DmaJob);
     transfer->localSegmentId = 0;
-    transfer->remoteNodeId = 8;
+    transfer->remoteNodeId = 0;
     transfer->remoteSegmentId = 0;
     transfer->localAdapterNo = 0;
+    transfer->flags = 0;
+    transfer->verify = false;
+
+    bool suppliedLocalId = false, suppliedRemoteId = false;
+
+    KVMap kvMap;
+    extractKeyValuePairs(transferString, kvMap);
+
+    // Parse transfer string
+    for (auto it = kvMap.begin(); it != kvMap.end(); ++it)
+    {
+        const string& key = it->first;
+
+        if (key == "local-segment-id" || key == "local-segment" || key == "ls" || key == "lid")
+        {
+            transfer->localSegmentId = parseNumber(key, it->second.back());
+            suppliedLocalId = true;
+        }
+        else if (key == "remote-node-id" || key == "remote-node" || key == "rn")
+        {
+            transfer->remoteNodeId = parseNumber(key, it->second.back());
+        }
+        else if (key == "remote-segment-id" || key == "remote-id" || key == "remote-segment" || key == "rs" || key == "rid")
+        {
+            transfer->remoteSegmentId = parseNumber(key, it->second.back());
+            suppliedRemoteId = true;
+        }
+        else if (key == "adapter" || key == "adapt" || key == "a")
+        {
+            transfer->localAdapterNo = parseNumber(key, it->second.back());
+        }
+        else if (key == "pull" || key == "read")
+        {
+            transfer->flags |= SCI_FLAG_DMA_READ;
+        }
+        else if (key == "global")
+        {
+            transfer->flags |= SCI_FLAG_DMA_GLOBAL;
+        }
+        else if (key == "system-dma" || key == "system" || key == "sysdma")
+        {
+            transfer->flags |= SCI_FLAG_DMA_SYSDMA;
+        }
+        else if (key == "verify")
+        {
+            transfer->verify = true;
+        }
+        else if (key == "transfer" || key == "vector" || key == "vec" || key == "t")
+        {
+            parseTransferVectorEntryString(it->second, transfer->vector);
+        }
+        else if (!key.empty())
+        {
+            throw string("Unknown transfer string key: ``") + key + "''";
+        }
+    }
+
+    // Check if local segment id was specified
+    if (!suppliedLocalId)
+    {
+        throw string("Local segment id must be specified");
+    }
+
+    // Check if remote segment id was specified
+    if (!suppliedRemoteId)
+    {
+        throw string("Local segment id must be specified");
+    }
+
+    // Check that remote node id was specified
+    if (transfer->remoteNodeId == 0)
+    {
+        throw string("Remote node id must be specified for transfers");
+    }
+
+    // Check flag combination
+    if (!!(transfer->flags & SCI_FLAG_DMA_GLOBAL) && !!(transfer->flags & SCI_FLAG_DMA_SYSDMA))
+    {
+        throw string("Can not set both global and system DMA");
+    }
+
     transfers.push_back(transfer);
-//    TransferPtr transfer(new Transfer);
-//    transfer->repeat = 1;
-//
-//    // Parse transfer string
-//    while (*transferString != '\0')
-//    {
-//        string key, value;
-//        transferString = nextToken(transferString, key, value);
-//
-//        if (key == "local-segment-id" || key == "local-segment" || key == "ls" || key == "lid")
-//        {
-//            transfer->localSegmentId = parseNumber(key, value);
-//        }
-//        else if (key == "remote-node-id" || key == "remote-node" || key == "rn")
-//        {
-//            transfer->remoteNodeId = parseNumber(key, value);   
-//        }
-//        else if (key == "remote-segment-id" || key == "remote-id" || key == "remote-segment" || key == "rs" || key == "rid")
-//        {
-//            transfer->remoteSegmentId = parseNumber(key, value);
-//        }
-//        else if (key == "adapter" || key == "adapt" || key == "a")
-//        {
-//            transfer->localAdapterNo = parseNumber(key, value);
-//        }
-//        else if (key == "pull" || key == "read")
-//        {
-//            transfer->pull = true;
-//        }
-//        else if (key == "remote-offset" || key == "ro")
-//        {
-//            transfer->remoteOffset = parseNumber(key, value);
-//        }
-//        else if (key == "local-offset" || key == "lo")
-//        {
-//            transfer->localOffset = parseNumber(key, value);
-//        }
-//        else if (key == "length" || key == "len" || key == "l" || key == "size" || key == "sz" || key == "s")
-//        {
-//            transfer->size = parseNumber(key, value);
-//        }
-//        else if (key == "repeat" || key == "c" || key == "r" || key == "n")
-//        {
-//            transfer->repeat = parseNumber(key, value);
-//        }
-//        else if (key == "verify")
-//        {
-//            //transfer.verify = true;
-//        }
-//    }
-//
-//    // Some sanity checking
-//    if (transfer->remoteNodeId == 0)
-//    {
-//        throw string("Remote node id must be specified for transfers");
-//    }
-//
-//    if (transfer->repeat == 0)
-//    {
-//        throw string("Transfers can not be repeated 0 times");
-//    }
-//
-//    transfers.push_back(transfer);
 }
 
 
@@ -311,7 +354,7 @@ static Log::Level parseVerbosity(const char* argument, uint level)
 
 
 /* Parse command line options */
-void parseArguments(int argc, char** argv, SegmentSpecMap& segments, TransferSpecList& transfers, Log::Level& logLevel)
+void parseArguments(int argc, char** argv, SegmentSpecMap& segments, DmaJobList& transfers, Log::Level& logLevel)
 {
     int option;
     int index;
@@ -353,22 +396,53 @@ void parseArguments(int argc, char** argv, SegmentSpecMap& segments, TransferSpe
         }
     }
 
-    // Do some sanity checking
+    // Are there any segments specified?
     if (segments.empty())
     {
         throw string("At least one local segment must be specified");
     }
     
+    // Check that segments are exported in server mode
     if (transfers.empty())
     {
         for (SegmentSpecMap::const_iterator it = segments.begin(); it != segments.end(); ++it)
         {
-            if (it->second.adapters.empty())
+            if (it->second->adapters.empty())
             {
-                throw string("Server mode specified but segment ") + std::to_string(it->first) + " has no exports";
+                throw string("Server mode specified but segment ") + to_string(it->first) + " has no exports";
             }
         }
     }
-    
-    // TODO check that transfer sizes doesn't exceed local segment size
+
+    // Check that DMA transfers correspond with local segments
+    for (DmaJobPtr transfer : transfers)
+    {
+        SegmentSpecMap::const_iterator localSegment = segments.find(transfer->localSegmentId);
+        if (localSegment == segments.end())
+        {
+            throw string("Local segment ") + to_string(transfer->localSegmentId) + " is used in transfer but is not specified";
+        }
+
+        for (const dis_dma_vec_t& vecEntry : transfer->vector)
+        {
+            if (vecEntry.local_offset + vecEntry.size > localSegment->second->size)
+            {
+                throw string("Transfer vector entry size (") 
+                    + to_string(vecEntry.local_offset) +" + " + std::to_string(vecEntry.size)
+                    + ") exceeds local segment size (" + std::to_string(localSegment->second->size) + ")";
+            }
+        }
+
+        // Add default transfer if entry vector is empty
+        if (transfer->vector.empty())
+        {
+            dis_dma_vec_t entry;
+            entry.local_offset = 0;
+            entry.remote_offset = 0;
+            entry.size = localSegment->second->size;
+            entry.flags = 0;
+
+            transfer->vector.push_back(entry);
+         }
+    }
 }

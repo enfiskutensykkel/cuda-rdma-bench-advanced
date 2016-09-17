@@ -1,6 +1,8 @@
 #ifndef __RDMA_BENCH_UTIL_H__
 #define __RDMA_BENCH_UTIL_H__
 
+#include <string>
+#include <cstddef>
 #include <cstdint>
 #include <sisci_types.h>
 
@@ -46,6 +48,10 @@ uint64_t IOAddress(sci_remote_segment_t segment);
 
 /* Get the physicl address of a segment */
 uint64_t physicalAddress(sci_local_segment_t segment);
+
+
+/* Convert bytes into a convenient human readable form */
+std::string humanReadable(size_t bytes);
 
 
 #endif

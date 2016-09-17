@@ -2,7 +2,6 @@
 #define __RDMA_BENCH_ARGS_H__
 
 #include <map>
-#include <list>
 #include <memory>
 #include "log.h"
 #include "segment.h"
@@ -14,39 +13,45 @@
 /* Describe a local segment and how to create it */
 struct SegmentSpec
 {
-    uint            segmentId;      // segment identifier
-    int             deviceId;       // CUDA device the buffer is allocated on
-    size_t          size;           // segment size
-    std::set<uint>  adapters;       // list of local adapters to export the segment on
+    uint            segmentId;  // segment identifier
+    int             deviceId;   // CUDA device the buffer is allocated on
+    size_t          size;       // segment size
+    std::set<uint>  adapters;   // list of local adapters to export the segment on
+    uint            flags;      // SISCI flags
 };
 
 
-/* Convenience type for a segment info map ordered by segment id */
-typedef std::map<uint, SegmentSpec> SegmentSpecMap;
+/* Convenience type for a segment specification pointer */
+typedef std::shared_ptr<SegmentSpec> SegmentSpecPtr;
 
 
-/* Describe a transfer task */
-struct TransferSpec
+/* Convenience type for a segment spec map ordered by segment id */
+typedef std::map<uint, SegmentSpecPtr> SegmentSpecMap;
+
+
+/* Describe a DMA transfer task */
+struct DmaJob
 {
-    uint                        localSegmentId;     // local segment identifier
-    uint                        remoteNodeId;       // remote node identifier
-    uint                        remoteSegmentId;    // remote segment identifier
-    uint                        localAdapterNo;     // local adapter number
-    bool                        pullData;           // read data from remote segment
-    size_t                      repeat;             // repeat transfer N times
-    std::vector<dis_dma_vec_t>  vector;             // DMA transfer vector
-    bool                        verify;             // verify transfer
+    uint       localSegmentId;  // local segment identifier
+    uint       remoteNodeId;    // remote node identifier
+    uint       remoteSegmentId; // remote segment identifier
+    uint       localAdapterNo;  // local adapter number
+    DmaVector  vector;          // DMA transfer vector
+    uint       flags;           // SISCI flags
+    bool       verify;          // send entire segment and calculate checksum
 };
+
 
 /* Convenience type for a transfer info pointer */
-typedef std::shared_ptr<TransferSpec> TransferSpecPtr;
+typedef std::shared_ptr<DmaJob> DmaJobPtr;
+
 
 /* Convenience type for a transfer info list */
-typedef std::list<TransferSpecPtr> TransferSpecList;
+typedef std::vector<DmaJobPtr> DmaJobList;
 
 
 /* Parse command line options and load settings */
-void parseArguments(int argc, char** argv, SegmentSpecMap& segments, TransferSpecList& transfers, Log::Level& logLevel);
+void parseArguments(int argc, char** argv, SegmentSpecMap& segments, DmaJobList& transfers, Log::Level& logLevel);
 
 
 #endif

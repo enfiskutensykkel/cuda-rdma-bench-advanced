@@ -30,12 +30,13 @@ class Segment
         const size_t size;
         const std::set<uint> adapters;
         const bool physMem;
+        const uint flags;
 
         // Create local segment
-        static SegmentPtr create(uint id, size_t size, const std::set<uint>& adapters);
+        static SegmentPtr create(uint id, size_t size, const std::set<uint>& adapters, uint flags);
 
         // Create local segment and attach physical memory
-        static SegmentPtr createWithPhysMem(uint id, size_t size, const std::set<uint>& adapters, int devId, void* devMem);
+        static SegmentPtr createWithPhysMem(uint id, size_t size, const std::set<uint>& adapters, int devId, void* devMem, uint flags);
 
         // Create local segment and register virtual memory
         static SegmentPtr createWithVirtMem(uint id, void* ptr, size_t size, const std::set<uint>& adapters); 
@@ -51,7 +52,7 @@ class Segment
 
     private:
         std::shared_ptr<SegmentImpl> impl;
-        Segment(std::shared_ptr<SegmentImpl> impl, const std::set<uint>& adapters);
+        Segment(std::shared_ptr<SegmentImpl> impl, const std::set<uint>& adapters, uint flags);
 };
 
 #endif

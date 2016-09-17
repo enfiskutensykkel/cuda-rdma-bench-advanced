@@ -23,9 +23,10 @@ struct TransferImpl
     uint                    remoteSegmentId;    // remote segment identifier
     uint                    adapter;            // local adapter number
     sci_remote_segment_t    remoteSegment;      // SISCI remote segment descriptor
+    size_t                  remoteSegmentSize;  // size of remote segment
     sci_dma_queue_t         dmaQueue;           // SISCI DMA queue
     vector<dis_dma_vec_t>   dmaVector;          // DIS DMA vector
-    bool                    pull;               // should we read data?
+    uint                    flags;              // additional SISCI flags to SCIStartDmaTransferVec
 };
 
 
@@ -80,8 +81,9 @@ static shared_ptr<TransferImpl> createTransferImpl(SegmentPtr localSegment, uint
     ptr->remoteSegmentId = remoteSegmentId;
     ptr->adapter = adapter;
     ptr->remoteSegment = nullptr;
+    ptr->remoteSegmentSize = 0;
     ptr->dmaQueue = nullptr;
-    ptr->pull = false;
+    ptr->flags = 0;
 
     // Open SISCI descriptor
     sci_error_t err;
@@ -94,13 +96,14 @@ static shared_ptr<TransferImpl> createTransferImpl(SegmentPtr localSegment, uint
 }
 
 
-Transfer::Transfer(const SegmentPtr segment, uint nodeId, uint segmentId, uint adapter)
+Transfer::Transfer(const SegmentPtr segment, uint nodeId, uint segmentId, uint adapter, uint flags)
     :
     impl(createTransferImpl(segment, nodeId, segmentId, adapter))
 {
     sci_error_t err;
 
     // Connect to remote segment
+    Log::debug("Connecting to remote segment %u on node %u...", segmentId, nodeId);
     SCIConnectSegment(impl->sd, &impl->remoteSegment, nodeId, segmentId, adapter, nullptr, nullptr, 5000, 0, &err);
     if (err != SCI_ERR_OK)
     {
@@ -108,6 +111,8 @@ Transfer::Transfer(const SegmentPtr segment, uint nodeId, uint segmentId, uint a
         Log::error("Failed to connect to remote segment %u on node %u: %s", segmentId, nodeId, scierrstr(err));
         throw runtime_error(scierrstr(err));
     }
+
+    impl->remoteSegmentSize = SCIGetRemoteSegmentSize(impl->remoteSegment);
 
     // Allocate DMA queue on adapter
     SCICreateDMAQueue(impl->sd, &impl->dmaQueue, adapter, 1, 0, &err);
@@ -117,6 +122,9 @@ Transfer::Transfer(const SegmentPtr segment, uint nodeId, uint segmentId, uint a
         Log::error("Failed to create DMA queue: %s", scierrstr(err));
         throw runtime_error(scierrstr(err));
     }
+
+    // Set SISCI flags
+    impl->flags = flags;
 }
 
 
@@ -138,7 +146,43 @@ void Transfer::addVectorEntry(const dis_dma_vec_t& entry)
 }
 
 
-void Transfer::setDirection(bool pull)
+size_t Transfer::getRemoteSegmentSize() const 
 {
-    impl->pull = pull;
+    return impl->remoteSegmentSize;
+}
+
+
+size_t Transfer::getLocalSegmentSize() const
+{
+    return impl->localSegment->size;
+}
+
+
+uint Transfer::getRemoteSegmentId() const
+{
+    return impl->remoteSegmentId;
+}
+
+
+uint Transfer::getLocalSegmentId() const
+{
+    return impl->localSegment->id;
+}
+
+
+uint Transfer::getRemoteNodeId() const
+{
+    return impl->remoteNodeId;
+}
+
+
+sci_remote_segment_t Transfer::getRemoteSegment() const
+{
+    return impl->remoteSegment;
+}
+
+
+sci_local_segment_t Transfer::getLocalSegment() const
+{
+    return impl->localSegment->getSegment();
 }

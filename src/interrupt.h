@@ -6,25 +6,30 @@
 #include <memory>
 
 
+/* Interrupt event description */
 struct InterruptEvent
 {
-    uint        interruptNo;
-    uint        localAdapterNo;
-    uint        remoteNodeId;
-    uint64_t    timestamp;
+    uint        interruptNo;    // interrupt number of the triggered interrupt
+    uint        localAdapterNo; // the local adapter the interrupt was triggered on
+    uint        remoteNodeId;   // node identifier of the node that triggered the interrupt
+    uint64_t    timestamp;      // timestamp of the interrupt
 };
 
 
+/* Convenience type for interrupt callback routines */
 typedef std::function<void (const InterruptEvent& event, const void* data, size_t length)> Callback;
 
 
+/* Forward declaration of implementation class */
 struct InterruptImpl;
 
+
+/* Local data interrupt handle */
 class Interrupt
 {
     public:
-        const uint no;
-        const uint adapter;
+        const uint no;      // interrupt number
+        const uint adapter; // local adapter number
 
         Interrupt(uint adapter, uint number, Callback callback);
 
@@ -33,6 +38,7 @@ class Interrupt
 };
 
 
+/* Convenience type for interrupt pointer */
 typedef std::shared_ptr<Interrupt> InterruptPtr;
 
 

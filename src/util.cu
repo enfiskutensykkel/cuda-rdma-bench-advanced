@@ -1,6 +1,7 @@
+#include <stdexcept>
+#include <string>
 #include <cstdio>
 #include <cstdarg>
-#include <stdexcept>
 #include <cerrno>
 #include <cstring>
 #include <ctime>
@@ -145,4 +146,24 @@ uint64_t physicalAddress(sci_local_segment_t segment)
     }
 
     return query.data.ioaddr;
+}
+
+
+std::string humanReadable(size_t bytes)
+{
+    char buffer[1024];
+    const char* units[] = { "B  ", "KiB", "MiB", "GiB", "TiB" };
+    const size_t n = sizeof(units) / sizeof(units[0]);
+
+    double csize = (double) bytes;
+
+    size_t i = 0;
+    while (i < (n - 1) && csize >= 1024.0)
+    {
+        csize /= 1024.0;
+        ++i;
+    }
+
+    snprintf(buffer, sizeof(buffer), "%.2f %s", csize, units[i]);
+    return std::string(buffer);
 }

@@ -23,12 +23,12 @@ static void createSegments(SegmentSpecMap& segmentSpecs, SegmentList& segments, 
 {
     for (auto segmentIt = segmentSpecs.begin(); segmentIt != segmentSpecs.end(); ++segmentIt)
     {
-        SegmentSpec& spec = segmentIt->second;
+        SegmentSpecPtr& spec = segmentIt->second;
         SegmentPtr segment;
 
-        if (spec.deviceId != NO_DEVICE)
+        if (spec->deviceId != NO_DEVICE)
         {
-            const int deviceId = spec.deviceId;
+            const int deviceId = spec->deviceId;
 
             cudaError_t err = cudaSetDevice(deviceId);
             if (err != cudaSuccess)
@@ -38,7 +38,7 @@ static void createSegments(SegmentSpecMap& segmentSpecs, SegmentList& segments, 
             }
                 
             void* bufferPtr;
-            err = cudaMalloc(&bufferPtr, spec.size);
+            err = cudaMalloc(&bufferPtr, spec->size);
             if (err != cudaSuccess)
             {
                 Log::error("Failed to allocate buffer on GPU %d: %s", deviceId, cudaGetErrorString(err));
@@ -52,14 +52,14 @@ static void createSegments(SegmentSpecMap& segmentSpecs, SegmentList& segments, 
                 cudaFree(buffer);
             };
 
-            buffers[spec.segmentId] = BufferPtr(bufferPtr, release);
+            buffers[spec->segmentId] = BufferPtr(bufferPtr, release);
 
             void* devicePtr = getDevicePtr(bufferPtr);
-            segment = Segment::createWithPhysMem(spec.segmentId, spec.size, spec.adapters, spec.deviceId, devicePtr);
+            segment = Segment::createWithPhysMem(spec->segmentId, spec->size, spec->adapters, spec->deviceId, devicePtr, spec->flags);
         }
         else
         {
-            segment = Segment::create(spec.segmentId, spec.size, spec.adapters);
+            segment = Segment::create(spec->segmentId, spec->size, spec->adapters, spec->flags);
         }
 
         segments.push_back(segment);
@@ -68,33 +68,71 @@ static void createSegments(SegmentSpecMap& segmentSpecs, SegmentList& segments, 
 
 
 /* Iterate over transfer infos and create transfers */
-static void createTransfers(const TransferSpecList& transferSpecs, TransferList& transfers, const SegmentList& segments)
+static void createTransfers(const DmaJobList& jobSpecs, TransferList& transfers, const SegmentList& segments)
 {
-    for (const auto info: transferSpecs)
+    for (const auto job: jobSpecs)
     {
         // Find corresponding local segment
         SegmentPtr localSegment(nullptr);
         for (SegmentPtr segment: segments)
         {
-            if (segment->id == info->localSegmentId)
+            if (segment->id == job->localSegmentId)
             {
                 localSegment = segment;
                 break;
             }
         }
 
+        // Was segment found?
         if (localSegment.get() == nullptr)
         {
-            Log::error("Could not match local segment %u", info->localSegmentId);
-            throw std::string("Could not find local segment ") + std::to_string(info->localSegmentId);
+            Log::error("Could not match local segment %u", job->localSegmentId);
+            throw std::string("Could not find local segment ") + std::to_string(job->localSegmentId);
+        }
+
+        // Notify user about potential error condition
+        switch ((!!(localSegment->flags | SCI_FLAG_DMA_GLOBAL) << 1) | !!(job->flags | SCI_FLAG_DMA_GLOBAL))
+        {
+            case 0:
+                break;
+
+            case 2:
+                Log::warn("Segment %u is created with SCI_FLAG_GLOBAL_DMA but transfer is non-global", localSegment->id);
+                break;
+
+            case 1:
+                Log::warn("Transfer specifies SCI_FLAG_GLOBAL_DMA but local segment %u is non-global", localSegment->id);
+                break;
+
+            case 3:
+                Log::debug("Using global DMA for segment %u", localSegment->id);
+                break;
         }
         
-        // Connect to remote end and create transfer
-        TransferPtr transfer(new Transfer(localSegment, info->remoteNodeId, info->remoteSegmentId, info->localAdapterNo));
-        for (const dis_dma_vec_t& vecEntry: info->vector)
+        // Connect to remote end and create transfer handle
+        TransferPtr transfer(new Transfer(localSegment, job->remoteNodeId, job->remoteSegmentId, job->localAdapterNo, job->flags));
+
+        const size_t remoteSegmentSize = transfer->getRemoteSegmentSize();
+
+        // Add transfer vector entries
+        for (const dis_dma_vec_t& vecEntry: job->vector)
         {
+            if (vecEntry.local_offset + vecEntry.size > localSegment->size)
+            {
+                Log::error("Transfer size exceeds size of local segment %u", localSegment->id);
+                throw std::string("Transfer size exceeds size of local segment ") + std::to_string(localSegment->id);
+            }
+            else if (vecEntry.remote_offset + vecEntry.size > remoteSegmentSize)
+            {
+                Log::error("Transfer size exceeds size of remote segment %u on node %u", job->remoteSegmentId, job->remoteNodeId);
+                throw std::string("Transfer size exceeds size of remote segment ") 
+                    + std::to_string(job->remoteSegmentId) + " on node " + std::to_string(job->remoteNodeId);
+            }
+
             transfer->addVectorEntry(vecEntry);
         }
+
+        // TODO: Handle verify
 
         transfers.push_back(transfer);
     }
@@ -104,7 +142,7 @@ static void createTransfers(const TransferSpecList& transferSpecs, TransferList&
 int main(int argc, char** argv)
 {
     SegmentSpecMap segmentSpecs;
-    TransferSpecList transferSpecs;
+    DmaJobList transferSpecs;
 
     // Parse command line arguments
     try
@@ -171,7 +209,6 @@ int main(int argc, char** argv)
     if (transfers.empty())
     {
         Callback handler = [&buffers](const InterruptEvent& event, const void* data, size_t length) {
-            
         };
 
         // No transfers specified, run as server

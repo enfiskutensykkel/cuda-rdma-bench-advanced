@@ -16,7 +16,7 @@ CC	 := /usr/bin/g++
 NVCC 	 := $(CU_HOME)/bin/nvcc
 CFLAGS	 := -Wall -Wextra -D_REENTRANT -g -O0
 INCLUDE	 := -I$(DIS_HOME)/include -I$(DIS_HOME)/include/dis -I$(CU_HOME)/include
-LDLIBS	 := -lsisci -lpthread -lcuda
+LDLIBS	 := -lsisci -lpthread -lcuda -lboost_regex
 
 ifneq ($(shell getconf LONG_BIT),)
 	LDFLAGS := -L$(DIS_HOME)/lib64 -L$(CU_HOME)/lib64
