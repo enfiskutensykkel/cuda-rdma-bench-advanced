@@ -9,6 +9,6 @@
 int runBenchmarkServer(SegmentList& segments, Callback interruptHandler);
 
 
-int runBenchmarkClient(const SegmentList& segments, TransferList& transfers);
+int runBenchmarkClient(const TransferList& transfers);
 
 #endif

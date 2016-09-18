@@ -173,7 +173,7 @@ sci_local_segment_t Transfer::getLocalSegment() const
 }
 
 
-size_t Transfer::loadVector(dis_dma_vec_t* vector, size_t length)
+size_t Transfer::loadVector(dis_dma_vec_t* vector, size_t length) const
 {
     size_t element = 0;
 
@@ -191,7 +191,7 @@ size_t Transfer::loadVector(dis_dma_vec_t* vector, size_t length)
 }
 
 
-dis_dma_queue_t Transfer::getDmaQueue() const
+sci_dma_queue_t Transfer::getDmaQueue() const
 {
     return impl->dmaQueue;
 }

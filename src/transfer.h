@@ -1,9 +1,9 @@
 #ifndef __RDMA_BENCH_TRANSFER_H__
 #define __RDMA_BENCH_TRANSFER_H__
 
-#include <cstddef>
 #include <memory>
 #include <vector>
+#include <cstddef>
 #include <sisci_types.h>
 #include "segment.h"
 
@@ -42,7 +42,7 @@ class Transfer
 
         size_t loadVector(dis_dma_vec_t* vector, size_t length) const;
 
-        dis_dma_queue_t getDmaQueue() const;
+        sci_dma_queue_t getDmaQueue() const;
 
     private:
         std::shared_ptr<TransferImpl> impl;
