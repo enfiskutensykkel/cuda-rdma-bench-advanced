@@ -31,6 +31,7 @@ static struct option options[] =
     { .name = "segment", .has_arg = true, .flag = nullptr, .val = 's' },
     { .name = "transfer", .has_arg = true, .flag = nullptr, .val = 't' },
     { .name = "verbosity", .has_arg = true, .flag = nullptr, .val = 'v' },
+    { .name = "check", .has_arg = false, .flag = nullptr, .val = 'c' },
     { .name = "list", .has_arg = false, .flag = nullptr, .val = 'l' },
     { .name = "help", .has_arg = false, .flag = nullptr, .val = 'h' },
     { .name = nullptr, .has_arg = false, .flag = nullptr, .val = 0 }
@@ -65,7 +66,6 @@ static void giveUsage(const char* programName)
             "    rs=<id>                        remote segment id (required)]\n"
             "    transfer=<vector entry>        specify a DMA vector entry\n"
             "    a=<no>                         local adapter for remote node [default is 0]\n"
-            "    verify                         transfer entire segment and calculate checksum\n"
             "    pull                           read data from remote buffer instead of writing (SCI_FLAG_DMA_READ)\n"
             "    global                         set SCI_FLAG_DMA_GLOBAL\n"
             "    sysdma                         set SCI_FLAG_DMA_SYSDMA\n"
@@ -76,6 +76,7 @@ static void giveUsage(const char* programName)
             "    <size>                         transfer size\n"
             "    <repeat>                       number of times to repeat vector entry\n"
             "\nOther options\n"
+            "  --check                          for each remote segment, verify that data changes\n"
             "  --verbosity      <level>         specify \"error\", \"warn\", \"info\" or \"debug\" log level\n"
             "  --log            <filename>      use a log file instead of stderr for logging\n"
             "  --report         <filename>      use a report file instead of stdout\n"
@@ -228,7 +229,6 @@ static void parseTransferString(const string& transferString, DmaJobList& transf
     transfer->remoteSegmentId = 0;
     transfer->localAdapterNo = 0;
     transfer->flags = 0;
-    transfer->verify = false;
 
     bool suppliedLocalId = false, suppliedRemoteId = false;
 
@@ -269,10 +269,6 @@ static void parseTransferString(const string& transferString, DmaJobList& transf
         else if (key == "system-dma" || key == "system" || key == "sysdma")
         {
             transfer->flags |= SCI_FLAG_DMA_SYSDMA;
-        }
-        else if (key == "verify")
-        {
-            transfer->verify = true;
         }
         else if (key == "transfer" || key == "vector" || key == "vec" || key == "t")
         {
@@ -354,7 +350,7 @@ static Log::Level parseVerbosity(const char* argument, uint level)
 
 
 /* Parse command line options */
-void parseArguments(int argc, char** argv, SegmentSpecMap& segments, DmaJobList& transfers, Log::Level& logLevel)
+void parseArguments(int argc, char** argv, SegmentSpecMap& segments, DmaJobList& transfers, Log::Level& logLevel/*, bool& validate*/)
 {
     int option;
     int index;
@@ -392,6 +388,10 @@ void parseArguments(int argc, char** argv, SegmentSpecMap& segments, DmaJobList&
 
             case 't': // Parse transfer string
                 parseTransferString(optarg, transfers);
+                break;
+
+            case 'c': // Verify all remote segments
+                // TODO: loop through all transfers and identify remote segments, skip local global
                 break;
         }
     }

@@ -167,3 +167,19 @@ std::string humanReadable(size_t bytes)
     snprintf(buffer, sizeof(buffer), "%.2f %s", csize, units[i]);
     return std::string(buffer);
 }
+
+
+uint32_t getLocalNodeId(uint adapter)
+{
+    sci_error_t err;
+    uint nodeId;
+
+    SCIGetLocalNodeId(adapter, &nodeId, 0, &err);
+    if (err != SCI_ERR_OK)
+    {
+        Log::warn("Failed to get local node id: %s", scierrstr(err));
+        return 0;
+    }
+
+    return nodeId;
+}

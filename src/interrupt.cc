@@ -19,7 +19,7 @@ struct InterruptImpl
 {
     uint                        intno;      // interrupt number
     uint                        adapter;    // local adapter number
-    Callback                    callback;   // user-supplied callback function
+    IntrCallback                callback;   // user-supplied callback function
     void*                       userData;   // user-supplied callback data
     sci_desc_t                  sd;         // SISCI descriptor
     sci_local_data_interrupt_t  intr;       // SISCI data interrupt descriptor
@@ -86,7 +86,7 @@ static void releaseInterrupt(InterruptImpl* ptr)
 }
 
 
-static shared_ptr<InterruptImpl> createInterruptImpl(uint interruptNo, uint adapterNo, Callback cb)
+static shared_ptr<InterruptImpl> createInterruptImpl(uint adapterNo, uint interruptNo, IntrCallback cb)
 {
     shared_ptr<InterruptImpl> ptr(new InterruptImpl, &releaseInterrupt);
     ptr->intno = interruptNo;
@@ -99,11 +99,11 @@ static shared_ptr<InterruptImpl> createInterruptImpl(uint interruptNo, uint adap
 }
 
 
-Interrupt::Interrupt(uint interruptNo, uint adapter, Callback cb)
+Interrupt::Interrupt(uint adapter, uint interruptNo, IntrCallback cb)
     :
     no(interruptNo),
     adapter(adapter),
-    impl(createInterruptImpl(interruptNo, adapter, cb))
+    impl(createInterruptImpl(adapter, interruptNo, cb))
 {
     sci_error_t err;
 

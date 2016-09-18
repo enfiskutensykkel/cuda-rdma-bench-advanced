@@ -5,6 +5,7 @@
 #include <memory>
 #include <vector>
 #include <set>
+#include <map>
 #include <sisci_types.h>
 
 class Segment;
@@ -16,7 +17,7 @@ typedef std::shared_ptr<Segment> SegmentPtr;
 
 
 /* Convenience type for a collection of segments */
-typedef std::vector<SegmentPtr> SegmentList;
+typedef std::map<uint, SegmentPtr> SegmentMap;
 
 
 /* Local segment wrapper class */
@@ -46,6 +47,8 @@ class Segment
 
         // Get SISCI handle to local segment
         sci_local_segment_t getSegment() const;
+
+        void getConnections(std::vector<uint>& connections) const;
 
     private:
         std::shared_ptr<SegmentImpl> impl;

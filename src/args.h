@@ -38,7 +38,6 @@ struct DmaJob
     uint       localAdapterNo;  // local adapter number
     DmaVector  vector;          // DMA transfer vector
     uint       flags;           // SISCI flags
-    bool       verify;          // send entire segment and calculate checksum
 };
 
 

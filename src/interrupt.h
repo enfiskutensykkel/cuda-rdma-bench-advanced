@@ -1,9 +1,10 @@
 #ifndef __RDMA_BENCH_INTERRUPT_H__
 #define __RDMA_BENCH_INTERRUPT_H__
 
+#include <memory>
+#include <functional>
 #include <cstddef>
 #include <cstdint>
-#include <memory>
 
 
 /* Interrupt event description */
@@ -17,7 +18,7 @@ struct InterruptEvent
 
 
 /* Convenience type for interrupt callback routines */
-typedef std::function<void (const InterruptEvent& event, const void* data, size_t length)> Callback;
+typedef std::function<void (const InterruptEvent&, const void*, size_t)> IntrCallback;
 
 
 /* Forward declaration of implementation class */
@@ -31,7 +32,7 @@ class Interrupt
         const uint no;      // interrupt number
         const uint adapter; // local adapter number
 
-        Interrupt(uint adapter, uint number, Callback callback);
+        Interrupt(uint adapter, uint number, IntrCallback callback);
 
     private:
         std::shared_ptr<InterruptImpl> impl;

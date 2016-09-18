@@ -6,7 +6,7 @@
 #include <cuda.h>
 #include <sisci_types.h>
 #include <sisci_api.h>
-#include "interrupt.h"
+#include "datachannel.h"
 #include "segment.h"
 #include "transfer.h"
 #include "benchmark.h"
@@ -19,7 +19,7 @@ typedef std::map<uint, BufferPtr> BufferMap;
 
 
 /* Iterate over segment infos and create segments accordingly */
-static void createSegments(SegmentSpecMap& segmentSpecs, SegmentList& segments, BufferMap& buffers)
+static void createSegments(SegmentSpecMap& segmentSpecs, SegmentMap& segments, BufferMap& buffers)
 {
     for (auto segmentIt = segmentSpecs.begin(); segmentIt != segmentSpecs.end(); ++segmentIt)
     {
@@ -62,33 +62,25 @@ static void createSegments(SegmentSpecMap& segmentSpecs, SegmentList& segments, 
             segment = Segment::create(spec->segmentId, spec->size, spec->adapters, spec->flags);
         }
 
-        segments.push_back(segment);
+        segments[segment->id] = segment;
     }
 }
 
 
 /* Iterate over transfer infos and create transfers */
-static void createTransfers(const DmaJobList& jobSpecs, TransferList& transfers, const SegmentList& segments)
+static void createTransfers(const DmaJobList& jobSpecs, TransferList& transfers, const SegmentMap& segments)
 {
     for (const auto job: jobSpecs)
     {
         // Find corresponding local segment
-        SegmentPtr localSegment(nullptr);
-        for (SegmentPtr segment: segments)
-        {
-            if (segment->id == job->localSegmentId)
-            {
-                localSegment = segment;
-                break;
-            }
-        }
-
-        // Was segment found?
-        if (localSegment.get() == nullptr)
+        auto segment = segments.find(job->localSegmentId);
+        if (segment == segments.end())
         {
             Log::error("Could not match local segment %u", job->localSegmentId);
             throw std::string("Could not find local segment ") + std::to_string(job->localSegmentId);
         }
+
+        const SegmentPtr& localSegment = segment->second;
 
         // Notify user about potential error condition
         switch ((!!(localSegment->flags | SCI_FLAG_DMA_GLOBAL) << 1) | !!(job->flags | SCI_FLAG_DMA_GLOBAL))
@@ -170,7 +162,7 @@ int main(int argc, char** argv)
         return 2;
     }
 
-    SegmentList segments;
+    SegmentMap segments;
     BufferMap buffers;
 
     // Allocate buffers and create segments
@@ -208,26 +200,24 @@ int main(int argc, char** argv)
 
     if (transfers.empty())
     {
-        Callback handler = [&buffers](const InterruptEvent& event, const void* data, size_t length) {
-            const uint segmentId = event.interruptNo;
-
-            BufferMap::iterator bufferIt = buffers.find(segmentId);
-            if (bufferIt != buffers.end())
-            {
-            }
+        ChecksumCallback calcChecksum = [&buffers, &segments](const Segment& segment, uint32_t& checksum) -> bool
+        {
+            return false;
         };
 
         // No transfers specified, run as server
-        if (runBenchmarkServer(segments, handler) != 0)
+        if (runBenchmarkServer(segments, calcChecksum) != 0)
         {
         }
     }
     else
     {
         // Run benchmark client
-        if (runBenchmarkClient(transfers) != 0)
+        if (runBenchmarkClient(transfers, stdout) != 0)
         {
         }
+
+        // TODO: if validate, validate()
     }
 
     // Nuke any active SISCI handles

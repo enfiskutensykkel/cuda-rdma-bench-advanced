@@ -1,9 +1,11 @@
-#include <cstddef>
-#include <cstdint>
+#include <mutex>
 #include <memory>
+#include <vector>
 #include <map>
 #include <stdexcept>
 #include <string>
+#include <cstddef>
+#include <cstdint>
 #include <sisci_api.h>
 #include <sisci_types.h>
 #include "segment.h"
@@ -18,12 +20,14 @@ using std::map;
 /* Definition of implementation class */
 struct SegmentImpl
 {
-    uint                    id;         // segment identifier
-    size_t                  size;       // segment size
-    sci_desc_t              sd;         // SISCI descriptor
-    sci_local_segment_t     segment;    // SISCI segment descriptor
-    map<uint, bool>         exports;    // map over exports ordered by adapter number
-    DeviceInfo*             devInfo;    // device info
+    uint                    id;             // segment identifier
+    size_t                  size;           // segment size
+    sci_desc_t              sd;             // SISCI descriptor
+    sci_local_segment_t     segment;        // SISCI segment descriptor
+    map<uint, bool>         exports;        // map over exports ordered by adapter number
+    DeviceInfo*             devInfo;        // device info
+    std::mutex              segmentLock;    // lock to handle concurrency
+    map<uint, uint>         connections;    // current connections
 };
 
 
@@ -40,10 +44,18 @@ connectEvent(SegmentImpl* info, sci_local_segment_t, sci_segment_cb_reason_t rea
     {
         case SCI_CB_CONNECT:
             Log::info("Segment %u got connection from remote node %u on adapter %u", info->id, nodeId, adapter);
+            {
+                std::lock_guard<std::mutex> lock(info->segmentLock);
+                info->connections[nodeId]++;
+            }
             break;
 
         case SCI_CB_DISCONNECT:
             Log::info("Remote node %u disconnected from segment %u", nodeId, info->id);
+            {
+                std::lock_guard<std::mutex> lock(info->segmentLock);
+                info->connections[nodeId]--;
+            }
             break;
 
         default:
@@ -285,3 +297,14 @@ sci_local_segment_t Segment::getSegment() const
     return impl->segment;
 }
 
+
+void Segment::getConnections(std::vector<uint>& conns) const
+{
+    for (map<uint, uint>::const_iterator it = impl->connections.begin(); it != impl->connections.end(); ++it)
+    {
+        for (size_t i = 0; i < it->second; ++i)
+        {
+            conns.push_back(it->first);
+        }
+    }
+}

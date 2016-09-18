@@ -187,3 +187,4 @@ sci_dma_queue_t Transfer::getDmaQueue() const
 {
     return impl->dmaQueue;
 }
+

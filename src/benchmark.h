@@ -1,14 +1,16 @@
 #ifndef __RDMA_BENCH_SERVER_H__
 #define __RDMA_BENCH_SERVER_H__
 
-#include "interrupt.h"
+#include <cstdio>
+#include "datachannel.h"
 #include "segment.h"
 #include "transfer.h"
+#include "util.h"
 
 
-int runBenchmarkServer(SegmentList& segments, Callback interruptHandler);
+int runBenchmarkServer(SegmentMap& segments, ChecksumCallback calculateChecksum);
 
 
-int runBenchmarkClient(const TransferList& transfers);
+int runBenchmarkClient(const TransferList& transfers, FILE* reportFile);
 
 #endif

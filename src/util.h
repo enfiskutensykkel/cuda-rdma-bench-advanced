@@ -54,4 +54,7 @@ uint64_t physicalAddress(sci_local_segment_t segment);
 std::string humanReadable(size_t bytes);
 
 
+/* Get local node id on an adapter */
+uint32_t getLocalNodeId(uint adapter);
+
 #endif

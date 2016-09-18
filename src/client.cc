@@ -1,8 +1,10 @@
 #include <thread>
 #include <cstdint>
+#include <cstdio>
 #include <sisci_types.h>
 #include <sisci_api.h>
 #include "barrier.h"
+#include "datachannel.h"
 #include "segment.h"
 #include "transfer.h"
 #include "benchmark.h"
@@ -13,10 +15,8 @@ using std::thread;
 using std::vector;
 
 
-static void transferDma(Barrier barrier, TransferPtr transfer)
+static void transferDma(Barrier barrier, TransferPtr transfer, uint64_t* time, sci_error_t* err)
 {
-    sci_error_t err;
-
     // Prepare DMA transfer vector
     const DmaVector& dmaVector = transfer->getDmaVector();
     dis_dma_vec_t vector[dmaVector.size()];
@@ -35,32 +35,46 @@ static void transferDma(Barrier barrier, TransferPtr transfer)
     sci_dma_queue_t queue = transfer->getDmaQueue();
     sci_local_segment_t lseg = transfer->getLocalSegment();
     sci_remote_segment_t rseg = transfer->getRemoteSegment();
+    *time = 0;
+    *err = SCI_ERR_OK;
 
     // Wait for all threads to reach this execution point
     barrier.wait();
 
     // Execute transfer
     uint64_t timeBefore = currentTime();
-    SCIStartDmaTransferVec(queue, lseg, rseg, length, vector, nullptr, nullptr, SCI_FLAG_DMA_WAIT | transfer->flags, &err);
+    SCIStartDmaTransferVec(queue, lseg, rseg, length, vector, nullptr, nullptr, SCI_FLAG_DMA_WAIT | transfer->flags, err);
     uint64_t timeAfter = currentTime();
 
+    *time = timeAfter - timeBefore;
+
     // Check errors
-    if (err != SCI_ERR_OK)
+    if (*err != SCI_ERR_OK)
     {
-        Log::error("DMA transfer failed: %s", scierrstr(err));
+        Log::error("DMA transfer failed: %s", scierrstr(*err));
     }
 }
 
 
-int runBenchmarkClient(const TransferList& transfers)
+int runBenchmarkClient(const TransferList& transfers, FILE* reportFile)
 {
+    // Create interrupts and connect to remote interrupts for data passing
+
     Barrier barrier(transfers.size() + 1);
     vector<thread> transferThreads;
+    sci_error_t errors[transfers.size()];
+    uint64_t times[transfers.size()];
+    size_t threadIdx = 0;
 
     // Create transfer threads and start transfers
     for (TransferPtr transfer : transfers)
     {
-        transferThreads.push_back(thread(transferDma, barrier, transfer));
+        transferThreads.push_back(thread(transferDma, barrier, transfer, &times[threadIdx], &errors[threadIdx]));
+
+        // TODO: debug
+        DataChannelClient channel(transfer->adapter, 1000);
+        SegmentInfo info;
+        channel.getRemoteSegmentInfo(transfer->remoteNodeId, transfer->remoteSegmentId, info);
     }
 
     // Start all transfers
@@ -74,6 +88,8 @@ int runBenchmarkClient(const TransferList& transfers)
         transferThread.join();
     }
     Log::info("All transfers done");
+
+    // Write benchmark summary
 
     return 0;
 }
