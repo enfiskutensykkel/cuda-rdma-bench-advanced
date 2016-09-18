@@ -104,6 +104,7 @@ Transfer::Transfer(shared_ptr<TransferImpl> impl)
     remoteSegmentSize(impl->remoteSegmentSize),
     localSegmentId(impl->localSegment->id),
     localSegmentSize(impl->localSegment->size),
+    flags(impl->flags),
     impl(impl)
 {
     sci_error_t err;
@@ -119,7 +120,7 @@ Transfer::Transfer(shared_ptr<TransferImpl> impl)
 }
 
 
-TransferPtr Transfer::create(const SegmentPtr segment, uint nodeId, uint segmentId, uint adapter)
+TransferPtr Transfer::create(const SegmentPtr segment, uint nodeId, uint segmentId, uint adapter, uint flags)
 {
     sci_error_t err;
 
@@ -138,6 +139,9 @@ TransferPtr Transfer::create(const SegmentPtr segment, uint nodeId, uint segment
 
     // Get remote segment size
     impl->remoteSegmentSize = SCIGetRemoteSegmentSize(impl->remoteSegment);
+
+    // Set SISCI flags
+    impl->flags = flags;
 
     return TransferPtr(new Transfer(impl));
 }
@@ -173,21 +177,9 @@ sci_local_segment_t Transfer::getLocalSegment() const
 }
 
 
-size_t Transfer::loadVector(dis_dma_vec_t* vector, size_t length) const
+const DmaVector& Transfer::getDmaVector() const
 {
-    size_t element = 0;
-
-    for (const dis_dma_vec_t& entry : impl->dmaVector)
-    {
-        if (element >= length)
-        {
-            break;
-        }
-        
-        vector[element++] = entry;
-    }
-
-    return element;
+    return impl->dmaVector;
 }
 
 

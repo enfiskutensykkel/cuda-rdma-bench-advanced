@@ -16,7 +16,7 @@ typedef std::shared_ptr<Transfer> TransferPtr;
 
 
 /* Convenience type for DMA vectors */
-typedef std::vector<dis_dma_vec_t> DmaVector; // FIXME: remove this if not used
+typedef std::vector<dis_dma_vec_t> DmaVector; 
 
 
 /* Actual transfer representation */
@@ -29,8 +29,9 @@ class Transfer
         const size_t remoteSegmentSize;
         const uint localSegmentId;
         const size_t localSegmentSize;
+        const uint flags;
 
-        static TransferPtr create(const SegmentPtr localSegment, uint remoteNodeId, uint remoteSegmentId, uint adapter);
+        static TransferPtr create(const SegmentPtr localSegment, uint remoteNodeId, uint remoteSegmentId, uint adapter, uint flags);
 
         void addVectorEntry(size_t localOffset, size_t remoteOffset, size_t size);
 
@@ -40,7 +41,7 @@ class Transfer
 
         sci_remote_segment_t getRemoteSegment() const;
 
-        size_t loadVector(dis_dma_vec_t* vector, size_t length) const;
+        const DmaVector& getDmaVector() const;
 
         sci_dma_queue_t getDmaQueue() const;
 

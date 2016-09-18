@@ -2,6 +2,7 @@
 #include <condition_variable>
 #include "barrier.h"
 
+
 struct BarrierImpl
 {
     uint numThreads;

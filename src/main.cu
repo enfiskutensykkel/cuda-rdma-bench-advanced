@@ -110,7 +110,7 @@ static void createTransfers(const DmaJobList& jobSpecs, TransferList& transfers,
         }
         
         // Connect to remote end and create transfer handle
-        TransferPtr transfer = Transfer::create(localSegment, job->remoteNodeId, job->remoteSegmentId, job->localAdapterNo);
+        TransferPtr transfer = Transfer::create(localSegment, job->remoteNodeId, job->remoteSegmentId, job->localAdapterNo, job->flags);
 
         const size_t remoteSegmentSize = transfer->remoteSegmentSize;
 

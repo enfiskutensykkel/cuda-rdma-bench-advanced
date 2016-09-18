@@ -1,4 +1,4 @@
-#include <cstdio>
+#include <mutex>
 #include <cstdio>
 #include <cstdarg>
 #include <cstdint>
@@ -11,6 +11,9 @@ static FILE* logFile = stderr;
 
 
 static Log::Level logLevel = Log::Level::ERROR;
+
+
+static std::mutex logLock;
 
 
 /* Known SISCI error codes */
@@ -158,6 +161,8 @@ static inline void report(const char* prefix, size_t len, const char* format, va
         length = strftime(buffer, sizeof(buffer), "[%Y-%m-%d %H:%M:%S] ", localtime(&now));
         fwrite(buffer, length, 1, logFile);
     }
+
+    std::lock_guard<std::mutex> lock(logLock);
 
     // Make pretty print stuff
     fputc('<', logFile);
