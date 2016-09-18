@@ -8,9 +8,6 @@
 #include <sisci_types.h>
 
 class Segment;
-
-
-/* Forward declaration of implementation class */
 struct SegmentImpl;
 
 

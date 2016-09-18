@@ -96,11 +96,35 @@ static shared_ptr<TransferImpl> createTransferImpl(SegmentPtr localSegment, uint
 }
 
 
-Transfer::Transfer(const SegmentPtr segment, uint nodeId, uint segmentId, uint adapter, uint flags)
+Transfer::Transfer(shared_ptr<TransferImpl> impl)
     :
-    impl(createTransferImpl(segment, nodeId, segmentId, adapter))
+    adapter(impl->adapter),
+    remoteNodeId(impl->remoteNodeId),
+    remoteSegmentId(impl->remoteSegmentId),
+    remoteSegmentSize(impl->remoteSegmentSize),
+    localSegmentId(impl->localSegment->id),
+    localSegmentSize(impl->localSegment->size),
+    impl(impl)
 {
     sci_error_t err;
+
+    // Allocate DMA queue on adapter
+    SCICreateDMAQueue(impl->sd, &impl->dmaQueue, adapter, 1, 0, &err);
+    if (err != SCI_ERR_OK)
+    {
+        impl->dmaQueue = nullptr;
+        Log::error("Failed to create DMA queue: %s", scierrstr(err));
+        throw runtime_error(scierrstr(err));
+    }
+}
+
+
+TransferPtr Transfer::create(const SegmentPtr segment, uint nodeId, uint segmentId, uint adapter)
+{
+    sci_error_t err;
+
+    // Create transfer implementation
+    shared_ptr<TransferImpl> impl(createTransferImpl(segment, nodeId, segmentId, adapter));
 
     // Connect to remote segment
     Log::debug("Connecting to remote segment %u on node %u...", segmentId, nodeId);
@@ -112,19 +136,10 @@ Transfer::Transfer(const SegmentPtr segment, uint nodeId, uint segmentId, uint a
         throw runtime_error(scierrstr(err));
     }
 
+    // Get remote segment size
     impl->remoteSegmentSize = SCIGetRemoteSegmentSize(impl->remoteSegment);
 
-    // Allocate DMA queue on adapter
-    SCICreateDMAQueue(impl->sd, &impl->dmaQueue, adapter, 1, 0, &err);
-    if (err != SCI_ERR_OK)
-    {
-        impl->dmaQueue = nullptr;
-        Log::error("Failed to create DMA queue: %s", scierrstr(err));
-        throw runtime_error(scierrstr(err));
-    }
-
-    // Set SISCI flags
-    impl->flags = flags;
+    return TransferPtr(new Transfer(impl));
 }
 
 
@@ -146,36 +161,6 @@ void Transfer::addVectorEntry(const dis_dma_vec_t& entry)
 }
 
 
-size_t Transfer::getRemoteSegmentSize() const 
-{
-    return impl->remoteSegmentSize;
-}
-
-
-size_t Transfer::getLocalSegmentSize() const
-{
-    return impl->localSegment->size;
-}
-
-
-uint Transfer::getRemoteSegmentId() const
-{
-    return impl->remoteSegmentId;
-}
-
-
-uint Transfer::getLocalSegmentId() const
-{
-    return impl->localSegment->id;
-}
-
-
-uint Transfer::getRemoteNodeId() const
-{
-    return impl->remoteNodeId;
-}
-
-
 sci_remote_segment_t Transfer::getRemoteSegment() const
 {
     return impl->remoteSegment;
@@ -185,4 +170,28 @@ sci_remote_segment_t Transfer::getRemoteSegment() const
 sci_local_segment_t Transfer::getLocalSegment() const
 {
     return impl->localSegment->getSegment();
+}
+
+
+size_t Transfer::loadVector(dis_dma_vec_t* vector, size_t length)
+{
+    size_t element = 0;
+
+    for (const dis_dma_vec_t& entry : impl->dmaVector)
+    {
+        if (element >= length)
+        {
+            break;
+        }
+        
+        vector[element++] = entry;
+    }
+
+    return element;
+}
+
+
+dis_dma_queue_t Transfer::getDmaQueue() const
+{
+    return impl->dmaQueue;
 }

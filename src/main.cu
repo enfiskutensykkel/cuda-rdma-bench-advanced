@@ -110,9 +110,9 @@ static void createTransfers(const DmaJobList& jobSpecs, TransferList& transfers,
         }
         
         // Connect to remote end and create transfer handle
-        TransferPtr transfer(new Transfer(localSegment, job->remoteNodeId, job->remoteSegmentId, job->localAdapterNo, job->flags));
+        TransferPtr transfer = Transfer::create(localSegment, job->remoteNodeId, job->remoteSegmentId, job->localAdapterNo);
 
-        const size_t remoteSegmentSize = transfer->getRemoteSegmentSize();
+        const size_t remoteSegmentSize = transfer->remoteSegmentSize;
 
         // Add transfer vector entries
         for (const dis_dma_vec_t& vecEntry: job->vector)
@@ -209,6 +209,12 @@ int main(int argc, char** argv)
     if (transfers.empty())
     {
         Callback handler = [&buffers](const InterruptEvent& event, const void* data, size_t length) {
+            const uint segmentId = event.interruptNo;
+
+            BufferMap::iterator bufferIt = buffers.find(segmentId);
+            if (bufferIt != buffers.end())
+            {
+            }
         };
 
         // No transfers specified, run as server
@@ -219,7 +225,7 @@ int main(int argc, char** argv)
     else
     {
         // Run benchmark client
-        if (runBenchmarkClient(segments, transfers) != 0)
+        if (runBenchmarkClient(transfers) != 0)
         {
         }
     }

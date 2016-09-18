@@ -1,9 +1,9 @@
-#include <boost/regex.hpp>
 #include <map>
 #include <vector>
 #include <string>
 #include <cstring>
 #include <getopt.h>
+#include <boost/regex.hpp>
 #include <sisci_types.h>
 #include <sisci_api.h>
 #include "log.h"
