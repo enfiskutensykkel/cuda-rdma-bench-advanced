@@ -30,6 +30,15 @@ struct RpcClientImpl
 };
 
 
+/* RPC server data */
+struct RpcServerImpl
+{
+    SegmentPtr          segment;     // local segment
+    InterruptPtr        interrupt;   // local interrupt
+    ChecksumCallback    callback;    // checksum calculation callback
+};
+
+
 /* Request types */
 enum class Type : uint8_t
 {
@@ -89,7 +98,7 @@ static bool sendMessage(uint adapter, uint nodeId, uint remoteIntrNo, uint local
         memcpy(&message->payload[0], data, length);
                 
         // Trigger remote interrupt
-        SCITriggerDataInterrupt(interrupt, (void*) message, totalSize, 0, &err);
+        SCITriggerDataInterrupt(interrupt, message, totalSize, 0, &err);
         if (err != SCI_ERR_OK)
         {
             free(message);
@@ -99,7 +108,6 @@ static bool sendMessage(uint adapter, uint nodeId, uint remoteIntrNo, uint local
 
         Log::debug("Message sent to interrupt %u on node %u", remoteIntrNo, nodeId);
         free(message);
-
     }
     catch (sci_error_t error)
     {
@@ -114,7 +122,7 @@ static bool sendMessage(uint adapter, uint nodeId, uint remoteIntrNo, uint local
         {
             SCIDisconnectDataInterrupt(interrupt, 0, &err);
         }
-        while (err != SCI_ERR_BUSY);
+        while (err == SCI_ERR_BUSY);
 
         if (err != SCI_ERR_OK)
         {
@@ -144,24 +152,8 @@ static bool sendSegmentInfo(const SegmentPtr& segment, uint adapter, uint nodeId
 }
 
 
-RpcServer::RpcServer(uint adapter, const SegmentPtr& segment, ChecksumCallback callback)
-    :
-    segment(segment),
-    callback(callback)
-{
-    IntrCallback handleInterrupt = [this](const InterruptEvent& event, const void* data, size_t length)
-    {
-        handleRequest(event, data, length);
-    };
-
-    interrupt = InterruptPtr(new Interrupt(adapter, segment->id, handleInterrupt));
-
-    Log::debug("RPC server for segment %u on adapter %u", segment->id, adapter);
-}
-
-
 /* Handle a RPC request from a client */
-void RpcServer::handleRequest(const InterruptEvent& event, const void* data, size_t length)
+static void handleRequest(std::shared_ptr<RpcServerImpl> impl, const InterruptEvent& event, const void* data, size_t length)
 {
     // Extract originator node id
     if (length != sizeof(Message) - sizeof(uint32_t))
@@ -171,14 +163,14 @@ void RpcServer::handleRequest(const InterruptEvent& event, const void* data, siz
     }
 
     uint32_t remoteInterrupt = ntohl(*((uint32_t*) data));
-    
+
     // What kind of request is it?
     Type request = Type(*(((uint8_t*) data) + sizeof(uint32_t)));
 
     switch (request)
     {
         case Type::GetSegmentInfo:
-            sendSegmentInfo(segment, event.localAdapterNo, event.remoteNodeId, remoteInterrupt, interrupt->no);
+            sendSegmentInfo(impl->segment, event.localAdapterNo, event.remoteNodeId, remoteInterrupt, impl->interrupt->no);
             break;
 
         // TODO: checksum and device info
@@ -191,25 +183,43 @@ void RpcServer::handleRequest(const InterruptEvent& event, const void* data, siz
 }
 
 
+RpcServer::RpcServer(uint adapter, const SegmentPtr& segment, ChecksumCallback callback)
+    :
+    impl(new RpcServerImpl)
+{
+    auto capture = impl;
+    auto handleInterrupt = [capture](const InterruptEvent& event, const void* data, size_t length)
+    {
+        handleRequest(capture, event, data, length);
+    };
+
+    impl->callback = callback;
+    impl->segment = segment;
+    impl->interrupt.reset(new Interrupt(adapter, segment->id, handleInterrupt));
+
+    Log::debug("RPC server for segment %u on adapter %u", segment->id, adapter);
+}
+
+
 RpcClient::RpcClient(uint adapter, uint id)
     :
     impl(new RpcClientImpl)
 {
-    impl->callInProgress = nullptr;
-    impl->callback = defaultCallback;
-    
-    auto handleInterrupt = [this](const InterruptEvent&, const void* data, size_t length)
+    auto capture = impl;
+    auto handleInterrupt = [capture](const InterruptEvent&, const void* data, size_t length)
     {
         if (length >= sizeof(uint32_t))
         {
-            impl->callback(((uint8_t*) data) + sizeof(uint32_t), length - sizeof(uint32_t));
+            capture->callback(((uint8_t*) data) + sizeof(uint32_t), length - sizeof(uint32_t));
         }
 
-        impl->callInProgress = false;
-        impl->callback = defaultCallback;
+        capture->callInProgress = false;
+        capture->callback = defaultCallback;
     };
 
-    impl->interrupt = InterruptPtr(new Interrupt(adapter, id, handleInterrupt));
+    impl->callInProgress = nullptr;
+    impl->callback = defaultCallback;
+    impl->interrupt.reset(new Interrupt(adapter, id, handleInterrupt));
 
     Log::debug("RPC client created on adapter %u", adapter);
 }

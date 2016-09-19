@@ -13,6 +13,8 @@
 typedef std::function<bool (const Segment& segment, uint32_t& checksum)> ChecksumCallback;
 
 
+struct RpcServerImpl;
+
 class RpcServer
 {
     public:
@@ -23,11 +25,7 @@ class RpcServer
         RpcServer(uint adapter, const SegmentPtr& segment, ChecksumCallback callback);
 
     private:
-        void handleRequest(const InterruptEvent&, const void*, size_t);
-
-        const SegmentPtr segment;
-        ChecksumCallback callback;
-        InterruptPtr interrupt;
+        std::shared_ptr<RpcServerImpl> impl;
 };
 
 
