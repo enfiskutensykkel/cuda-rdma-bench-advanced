@@ -70,6 +70,15 @@ int runBenchmarkClient(const TransferList& transfers, FILE* reportFile)
     for (TransferPtr transfer : transfers)
     {
         transferThreads.push_back(thread(transferDma, barrier, transfer, &times[threadIdx], &errors[threadIdx]));
+
+        // TODO: debug
+        RpcClient rpc(transfer->adapter, transfer->localSegmentId);
+
+        SegmentInfo info;
+
+        rpc.getRemoteSegmentInfo(transfer->remoteNodeId, transfer->remoteSegmentId, info);
+
+        Log::info("%u %d", info.id, info.isDeviceMem);
     }
 
     // Start all transfers

@@ -1,6 +1,6 @@
 #include <functional>
 #include <mutex>
-#include <vector>
+#include <memory>
 #include <stdexcept>
 #include <cstddef>
 #include <cstdint>
@@ -16,23 +16,43 @@
 
 using std::runtime_error;
 
+/* Convenience type for client callbacks */
+typedef std::function<void (const void*, size_t)> Callback;
+
+
+/* RPC client data */
+struct RpcClientImpl
+{
+    bool            callInProgress; // caller blocks until this is false
+    std::mutex      callLock;       // avoid race conditions
+    Callback        callback;       // current callback
+    InterruptPtr    interrupt;      // local interrupt
+};
+
 
 /* Request types */
 enum class Type : uint8_t
 {
-    GetSegmentInfo  = 0x01, // get info about a remote segment
-    GetDeviceInfo   = 0x02, // get info about a remote GPU
-    GetChecksum     = 0x03, // calculate checksum for a remote segment
+    GetSegmentInfo  = 0x01,         // get info about a remote segment
+    GetDeviceInfo   = 0x02,         // get info about a remote GPU
+    GetChecksum     = 0x03,         // calculate checksum for a remote segment
 };
 
 
 /* Message format */
 struct Message 
 {
-    uint32_t    origNodeId;     // node id of the request originator
-    uint32_t    origInterrupt;  // interrupt number to connect to backwards
-    uint8_t     payload[1];     // data payload
+    uint32_t        origNodeId;     // node id of the request originator
+    uint32_t        origInterrupt;  // interrupt number to connect to backwards
+    uint8_t         payload[1];     // data payload
 };
+
+
+/* Default client callback */
+static void defaultCallback(const void*, size_t)
+{
+    Log::warn("Got unexpected interrupt");
+}
 
 
 /* Helper function to send a message */
@@ -67,8 +87,8 @@ static bool sendMessage(uint adapter, uint nodeId, uint remoteIntrNo, uint local
         message->origNodeId = htonl(getLocalNodeId(adapter));
         message->origInterrupt = htonl(localIntrNo);
         memcpy(&message->payload[0], data, length);
-        
-        // Send message
+                
+        // Trigger remote interrupt
         SCITriggerDataInterrupt(interrupt, (void*) message, totalSize, 0, &err);
         if (err != SCI_ERR_OK)
         {
@@ -171,4 +191,62 @@ void RpcServer::handleRequest(const InterruptEvent& event, const void* data, siz
 }
 
 
+RpcClient::RpcClient(uint adapter, uint id)
+    :
+    impl(new RpcClientImpl)
+{
+    impl->callInProgress = nullptr;
+    impl->callback = defaultCallback;
+    
+    auto handleInterrupt = [this](const InterruptEvent&, const void* data, size_t length)
+    {
+        if (length >= sizeof(uint32_t))
+        {
+            impl->callback(((uint8_t*) data) + sizeof(uint32_t), length - sizeof(uint32_t));
+        }
 
+        impl->callInProgress = false;
+        impl->callback = defaultCallback;
+    };
+
+    impl->interrupt = InterruptPtr(new Interrupt(adapter, id, handleInterrupt));
+
+    Log::debug("RPC client created on adapter %u", adapter);
+}
+
+
+bool RpcClient::getRemoteSegmentInfo(uint nodeId, uint segmentId, SegmentInfo& info)
+{
+    std::lock_guard<std::mutex> lock(impl->callLock);
+
+    // Prepare to send request
+    bool success = false;
+    Type request = Type::GetSegmentInfo;
+
+    impl->callInProgress = true;
+    impl->callback = [this, &success, &info](const void* data, size_t length)
+    {
+        if (length < sizeof(SegmentInfo))
+        {
+            Log::error("Expected segment info response but got garbage");
+            success = false;
+            return;
+        }
+
+        info = *((SegmentInfo*) data);
+        success = true;
+    };
+
+    // Send request
+    if (!sendMessage(impl->interrupt->adapter, nodeId, segmentId, impl->interrupt->no, &request, sizeof(request)))
+    {
+        impl->callback = defaultCallback;
+        impl->callInProgress = false;
+        throw runtime_error("Failed to send RPC request");
+    }
+
+    // Wait for response
+    while (impl->callInProgress);
+
+    return success;
+}
