@@ -177,7 +177,7 @@ uint32_t getLocalNodeId(uint adapter)
     SCIGetLocalNodeId(adapter, &nodeId, 0, &err);
     if (err != SCI_ERR_OK)
     {
-        Log::warn("Failed to get local node id: %s", scierrstr(err));
+        Log::warn("Failed to get local node id for adapter %u: %s", adapter, scierrstr(err));
         return 0;
     }
 

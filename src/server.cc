@@ -2,7 +2,7 @@
 #include <stdexcept>
 #include <signal.h>
 #include <vector>
-#include "datachannel.h"
+#include "rpc.h"
 #include "segment.h"
 #include "benchmark.h"
 #include "log.h"
@@ -17,23 +17,22 @@ static void stopServer(int)
 }
 
 
-int runBenchmarkServer(SegmentMap& segments, ChecksumCallback interruptHandler)
+int runBenchmarkServer(SegmentMap& segments, ChecksumCallback callback)
 {
-    std::vector<DataChannelServer> interrupts;
+    std::vector<RpcServer> rpcHandlers;
+
     try
     {
         for (auto it = segments.begin(); it != segments.end(); ++it)
         {
             SegmentPtr& segment = it->second;
 
-            // Create data channel for segment
-            interrupts.push_back(
-                    DataChannelServer(segment, interruptHandler)
-            );
-
             // Export segments on all adapters
             for (uint adapter: segment->adapters)
             {
+                // Handle RPC for segment
+                rpcHandlers.push_back(RpcServer(adapter, segment, callback));
+
                 // Set available on adapter
                 Log::debug("Exporting segment %u on adapter %u...", segment->id, adapter);
                 segment->setAvailable(adapter);

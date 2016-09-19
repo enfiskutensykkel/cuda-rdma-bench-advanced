@@ -4,7 +4,7 @@
 #include <sisci_types.h>
 #include <sisci_api.h>
 #include "barrier.h"
-#include "datachannel.h"
+#include "rpc.h"
 #include "segment.h"
 #include "transfer.h"
 #include "benchmark.h"
@@ -70,11 +70,6 @@ int runBenchmarkClient(const TransferList& transfers, FILE* reportFile)
     for (TransferPtr transfer : transfers)
     {
         transferThreads.push_back(thread(transferDma, barrier, transfer, &times[threadIdx], &errors[threadIdx]));
-
-        // TODO: debug
-        DataChannelClient channel(transfer->adapter, 1000);
-        SegmentInfo info;
-        channel.getRemoteSegmentInfo(transfer->remoteNodeId, transfer->remoteSegmentId, info);
     }
 
     // Start all transfers

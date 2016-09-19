@@ -27,7 +27,6 @@ class Segment
         const uint id;
         const size_t size;
         const std::set<uint> adapters;
-        const bool physMem;
         const uint flags;
 
         // Create local segment

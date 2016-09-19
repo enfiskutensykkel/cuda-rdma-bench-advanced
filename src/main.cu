@@ -6,7 +6,7 @@
 #include <cuda.h>
 #include <sisci_types.h>
 #include <sisci_api.h>
-#include "datachannel.h"
+#include "rpc.h"
 #include "segment.h"
 #include "transfer.h"
 #include "benchmark.h"

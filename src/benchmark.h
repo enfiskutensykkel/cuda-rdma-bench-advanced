@@ -2,7 +2,7 @@
 #define __RDMA_BENCH_SERVER_H__
 
 #include <cstdio>
-#include "datachannel.h"
+#include "rpc.h"
 #include "segment.h"
 #include "transfer.h"
 #include "util.h"

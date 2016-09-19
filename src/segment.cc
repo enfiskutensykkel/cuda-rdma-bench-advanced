@@ -148,7 +148,6 @@ Segment::Segment(shared_ptr<SegmentImpl> impl, const std::set<uint>& adapters, u
     id(impl->id),
     size(impl->size),
     adapters(adapters),
-    physMem(impl->devInfo != nullptr),
     flags(flags),
     impl(impl)
 {
@@ -201,7 +200,8 @@ SegmentPtr Segment::createWithPhysMem(uint id, size_t size, const std::set<uint>
     shared_ptr<SegmentImpl> impl = createSegmentImpl(id, size);
 
     // Create local segment
-    SCICreateSegment(impl->sd, &impl->segment, id, size, (sci_cb_local_segment_t) &connectEvent, impl.get(), flags | SCI_FLAG_EMPTY | SCI_FLAG_USE_CALLBACK, &err);
+    flags |= SCI_FLAG_EMPTY;
+    SCICreateSegment(impl->sd, &impl->segment, id, size, (sci_cb_local_segment_t) &connectEvent, impl.get(), flags | SCI_FLAG_USE_CALLBACK, &err);
     if (err != SCI_ERR_OK)
     {
         impl->segment = nullptr;
@@ -238,12 +238,7 @@ void Segment::setAvailable(uint adapter)
         sci_error_t err;
 
         // Get local node id
-        uint localId;
-        SCIGetLocalNodeId(adapter, &localId, 0, &err);
-        if (err != SCI_ERR_OK)
-        {
-            Log::warn("Failed to get local node id for adapter %u", adapter);
-        }
+        uint32_t localId = getLocalNodeId(adapter);
 
         // Set segment available
         SCISetSegmentAvailable(impl->segment, adapter, 0, &err);
