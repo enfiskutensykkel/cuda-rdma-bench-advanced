@@ -153,7 +153,7 @@ static bool sendSegmentInfo(const SegmentPtr& segment, uint adapter, uint nodeId
 
 
 /* Handle a RPC request from a client */
-static void handleRequest(std::shared_ptr<RpcServerImpl> impl, const InterruptEvent& event, const void* data, size_t length)
+static void handleRequest(const std::shared_ptr<RpcServerImpl>& impl, const InterruptEvent& event, const void* data, size_t length)
 {
     // Extract originator node id
     if (length != sizeof(Message) - sizeof(uint32_t))

@@ -177,6 +177,12 @@ sci_local_segment_t Transfer::getLocalSegment() const
 }
 
 
+const SegmentPtr Transfer::getLocalSegmentPtr() const
+{
+    return impl->localSegment;
+}
+
+
 const DmaVector& Transfer::getDmaVector() const
 {
     return impl->dmaVector;
