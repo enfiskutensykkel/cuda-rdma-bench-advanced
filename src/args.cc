@@ -213,7 +213,14 @@ static void parseTransferVectorEntryString(const vector<string>& entryStrings, D
         entry.size = parseNumber(nullstr, match["size"].str());
         entry.flags = 0;
 
-        for (size_t i = 0, n = parseNumber(nullstr, match["repeat"].str()); i < n; ++i)
+        size_t n = parseNumber(nullstr, match["repeat"].str());
+        if (n >= DIS_DMA_MAX_VECLEN)
+        {
+            throw "DMA vector length can't exceed " + to_string(DIS_DMA_MAX_VECLEN) + " elements";
+        }
+
+
+        for (size_t i = 0; i < n; ++i)
         {
             vector.push_back(entry);
         }
@@ -270,7 +277,7 @@ static void parseTransferString(const string& transferString, DmaJobList& transf
         {
             transfer->flags |= SCI_FLAG_DMA_SYSDMA;
         }
-        else if (key == "transfer" || key == "vector" || key == "vec" || key == "t")
+        else if (key == "transfer" || key == "vector" || key == "vec" || key == "v" || key == "t")
         {
             parseTransferVectorEntryString(it->second, transfer->vector);
         }
@@ -302,6 +309,12 @@ static void parseTransferString(const string& transferString, DmaJobList& transf
     if (!!(transfer->flags & SCI_FLAG_DMA_GLOBAL) && !!(transfer->flags & SCI_FLAG_DMA_SYSDMA))
     {
         throw string("Can not set both global and system DMA");
+    }
+
+    // Check DMA vector length
+    if (transfer->vector.size() >= DIS_DMA_MAX_VECLEN)
+    {
+        throw "DMA vector length can't exceed " + to_string(DIS_DMA_MAX_VECLEN) + " elements";
     }
 
     transfers.push_back(transfer);

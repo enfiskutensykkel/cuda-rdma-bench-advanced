@@ -2,6 +2,8 @@
 #include <vector>
 #include <map>
 #include <memory>
+#include <cstdint>
+#include <cstddef>
 #include <cstdio>
 #include <cuda.h>
 #include <sisci_types.h>
@@ -13,6 +15,9 @@
 #include "util.h"
 #include "log.h"
 #include "args.h"
+
+#define GPU_BOUND_MASK ((((uintptr_t) 1) << 16) - 1)
+
 
 typedef std::shared_ptr<void> BufferPtr;
 typedef std::map<uint, BufferPtr> BufferMap;
@@ -55,6 +60,10 @@ static void createSegments(SegmentSpecMap& segmentSpecs, SegmentMap& segments, B
             buffers[spec->segmentId] = BufferPtr(bufferPtr, release);
 
             void* devicePtr = getDevicePtr(bufferPtr);
+            if ((((uintptr_t) devicePtr) & GPU_BOUND_MASK) != 0)
+            {
+                Log::warn("Device pointer is not 64 KiB aligned: %p", devicePtr);
+            }
             segment = Segment::createWithPhysMem(spec->segmentId, spec->size, spec->adapters, spec->deviceId, devicePtr, spec->flags);
         }
         else
@@ -276,3 +285,4 @@ void listGpus()
     }
     fprintf(stderr, "\n");
 }
+

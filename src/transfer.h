@@ -37,8 +37,6 @@ class Transfer
 
         void addVectorEntry(const dis_dma_vec_t& entry);
 
-        const SegmentPtr getLocalSegmentPtr() const;
-
         sci_local_segment_t getLocalSegment() const;
 
         sci_remote_segment_t getRemoteSegment() const;

@@ -1,6 +1,8 @@
 #include <thread>
 #include <vector>
 #include <map>
+#include <string>
+#include <limits>
 #include <cstdint>
 #include <cstdio>
 #include <sisci_types.h>
@@ -53,19 +55,34 @@ static void transferDma(Barrier barrier, TransferPtr transfer, uint64_t* time, s
     SCIStartDmaTransferVec(queue, lseg, rseg, length, vector, nullptr, nullptr, SCI_FLAG_DMA_WAIT | transfer->flags, err);
     uint64_t timeAfter = currentTime();
 
-    *time = timeAfter - timeBefore;
-
-    // Check errors
-    if (*err != SCI_ERR_OK)
+    if (*err == SCI_ERR_OK)
     {
-        Log::error("DMA transfer failed: %s", scierrstr(*err));
+        *time = timeAfter - timeBefore;
     }
 }
 
 
-static void writeBandwidthReport(FILE* reportFile, const TransferPtr& transfer, uint64_t time, sci_error_t status)
+static void writeTransferResults(FILE* reportFile, size_t num, const TransferPtr& transfer, uint64_t time, sci_error_t status)
 {
-    
+    size_t transferSize = 0;
+
+    const DmaVector& vector = transfer->getDmaVector();
+    for (const dis_dma_vec_t& entry : vector)
+    {
+        transferSize += entry.size;
+    }
+
+    double megabytesPerSecond = ((double) transferSize) / ((double) time);
+    fprintf(reportFile, " %3zu   %4u   %6s   %6s   %13s   %10lu µs   %7.2f MiB/s   %4s\n", 
+        num, 
+        transfer->remoteNodeId,
+        "ram",
+        "ram",
+        humanReadable(transferSize).c_str(),
+        status != SCI_ERR_OK ? 0 : time,
+        megabytesPerSecond,
+        status != SCI_ERR_OK ? "FAIL" : "OK"
+    );
 }
 
 
@@ -96,7 +113,7 @@ int runBenchmarkClient(const TransferList& transfers, FILE* reportFile)
     
     // Create transfer thread data
     thread threads[numTransfers];
-    sci_error_t errors[numTransfers];
+    sci_error_t status[numTransfers];
     uint64_t times[numTransfers];
 
     // Create transfer threads and start transfers
@@ -104,10 +121,10 @@ int runBenchmarkClient(const TransferList& transfers, FILE* reportFile)
     {
         const TransferPtr& transfer = transfers[threadIdx];
 
-        errors[threadIdx] = SCI_ERR_OK;
-        times[threadIdx] = 0;
+        status[threadIdx] = SCI_ERR_OK;
+        times[threadIdx] = std::numeric_limits<uint64_t>::max();
 
-        threads[threadIdx] = thread(transferDma, barrier, transfer, &times[threadIdx], &errors[threadIdx]);
+        threads[threadIdx] = thread(transferDma, barrier, transfer, &times[threadIdx], &status[threadIdx]);
     }
 
     // Start all transfers
@@ -119,48 +136,30 @@ int runBenchmarkClient(const TransferList& transfers, FILE* reportFile)
     for (size_t threadIdx = 0; threadIdx < numTransfers; ++threadIdx)
     {
         threads[threadIdx].join();
+
+        if (status[threadIdx] != SCI_ERR_OK)
+        {
+            Log::warn("Transfer %zu failed: %s", threadIdx, scierrstr(status[threadIdx]));
+        }
     }
     Log::info("All transfers done");
 
-    // Write benchmark summary
-    fprintf(reportFile, "================  SUMMARY  ================\n");
-    fprintf(reportFile, "%3s   %-4s   %-9s   %-9s   %-9s   %-9s   %-9s   %-9s   %-9s   %-9s\n",
-            "#", "RN", "RS", "RS global", "RS device", "RS size", "LS", "LS global", "LS device", "LS size"
-    );
+    // Write benchmark report
+    fprintf(reportFile, " %3s   %-4s   %-6s   %-6s   %-13s   %-13s   %-12s   %-4s\n",
+            "#", "node", "source", "target", "transfer size", "transfer time", "throughput", "note");
+    for (size_t i = 0; i < 80; ++i)
+    {
+        fputc('=', reportFile);
+    }
+    fputc('\n', reportFile);
+
     for (size_t idx = 0; idx < numTransfers; ++idx)
     {
         const TransferPtr& transfer = transfers[idx];
-        const char* rsGlobal = "N/A";
-        const char* rsDevice = "N/A";
 
-        auto segmentInfo = segmentInfoMap.find(make_pair(transfer->remoteNodeId, transfer->remoteSegmentId));
-        if (segmentInfo != segmentInfoMap.end())
-        {
-            const SegmentInfo& info = segmentInfo->second;
-            rsGlobal = info.isGlobal ? "yes" : "no";
-            rsDevice = info.isDeviceMem ? "yes" : "no";
-        }
-
-        const SegmentPtr localSegment = transfer->getLocalSegmentPtr();
-        const char* lsGlobal = !!(localSegment->flags | SCI_FLAG_DMA_GLOBAL) ? "yes" : "no";
-        const char* lsDevice = !!(localSegment->flags | SCI_FLAG_EMPTY) ? "yes" : "no";
-
-        fprintf(reportFile, "%3zu   %4x   %-9x   %-9s   %-9s   %9s   %-9x   %-9s   %-9s   %9s\n",
-            idx,
-            transfer->remoteNodeId,
-            transfer->remoteSegmentId,
-            rsGlobal,
-            rsDevice,
-            humanReadable(transfer->remoteSegmentSize).c_str(),
-            transfer->localSegmentId,
-            lsGlobal,
-            lsDevice,
-            humanReadable(transfer->localSegmentSize).c_str()
-        );
+        writeTransferResults(reportFile, idx, transfer, times[idx], status[idx]);
     }
-
-    // Write benchmark report
-    fprintf(reportFile, "================ BANDWIDTH ================\n");
 
     return 0;
 }
+

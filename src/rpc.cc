@@ -17,7 +17,7 @@
 using std::runtime_error;
 
 /* Convenience type for client callbacks */
-typedef std::function<void (const void*, size_t)> Callback;
+typedef std::function<void (uint, const void*, size_t)> Callback;
 
 
 /* RPC client data */
@@ -58,9 +58,9 @@ struct Message
 
 
 /* Default client callback */
-static void defaultCallback(const void*, size_t)
+static void defaultCallback(uint nodeId, const void*, size_t)
 {
-    Log::warn("Got unexpected interrupt");
+    Log::warn("Got unexpected interrupt from node %u", nodeId);
 }
 
 
@@ -86,7 +86,8 @@ static bool sendMessage(uint adapter, uint nodeId, uint remoteIntrNo, uint local
         if (err != SCI_ERR_OK)
         {
             interrupt = nullptr;
-            Log::error("Failed to connect to interrupt %u on node %u: %s", remoteIntrNo, nodeId, scierrstr(err));
+            Log::error("Failed to connect to interrupt %u on node %u: %s", 
+                    remoteIntrNo, nodeId, scierrstr(err));
             throw err;
         }
 
@@ -102,7 +103,8 @@ static bool sendMessage(uint adapter, uint nodeId, uint remoteIntrNo, uint local
         if (err != SCI_ERR_OK)
         {
             free(message);
-            Log::error("Failed to trigger remote interrupt %u on node %u: %s", remoteIntrNo, nodeId, scierrstr(err));
+            Log::error("Failed to trigger remote interrupt %u on node %u: %s", 
+                    remoteIntrNo, nodeId, scierrstr(err));
             throw err;
         }
 
@@ -111,7 +113,6 @@ static bool sendMessage(uint adapter, uint nodeId, uint remoteIntrNo, uint local
     }
     catch (sci_error_t error)
     {
-        Log::debug("Aborting sending data");
         status = error;
     }
 
@@ -126,7 +127,8 @@ static bool sendMessage(uint adapter, uint nodeId, uint remoteIntrNo, uint local
 
         if (err != SCI_ERR_OK)
         {
-            Log::warn("Failed to disconnect from remote interrupt %u on node %u: %s", remoteIntrNo, nodeId, scierrstr(err));
+            Log::warn("Failed to disconnect from remote interrupt %u on node %u: %s", 
+                    remoteIntrNo, nodeId, scierrstr(err));
         }
     }
 
@@ -158,7 +160,7 @@ static void handleRequest(const std::shared_ptr<RpcServerImpl>& impl, const Inte
     // Extract originator node id
     if (length != sizeof(Message) - sizeof(uint32_t))
     {
-        Log::warn("Expected request in interrupt handler but got garbage");
+        Log::warn("Expected request in interrupt handler but got unknown interrupt data");
         return;
     }
 
@@ -170,14 +172,14 @@ static void handleRequest(const std::shared_ptr<RpcServerImpl>& impl, const Inte
     switch (request)
     {
         case Type::GetSegmentInfo:
-            sendSegmentInfo(impl->segment, event.localAdapterNo, event.remoteNodeId, remoteInterrupt, impl->interrupt->no);
+            sendSegmentInfo(impl->segment, event.adapter, event.remoteNodeId, remoteInterrupt, impl->interrupt->no);
             break;
 
         // TODO: checksum and device info
 
         default:
             Log::warn("Got unknown request type from node %u on adapter %u: 0x%02x", 
-                    event.remoteNodeId, event.localAdapterNo, request);
+                    event.remoteNodeId, event.adapter, request);
             break;
     }
 }
@@ -197,7 +199,7 @@ RpcServer::RpcServer(uint adapter, const SegmentPtr& segment, ChecksumCallback c
     impl->segment = segment;
     impl->interrupt.reset(new Interrupt(adapter, segment->id, handleInterrupt));
 
-    Log::debug("RPC server for segment %u on adapter %u", segment->id, adapter);
+    Log::debug("Running information service for segment %u on adapter %u", segment->id, adapter);
 }
 
 
@@ -206,11 +208,11 @@ RpcClient::RpcClient(uint adapter, uint id)
     impl(new RpcClientImpl)
 {
     auto capture = impl;
-    auto handleInterrupt = [capture](const InterruptEvent&, const void* data, size_t length)
+    auto handleInterrupt = [capture](const InterruptEvent& event, const void* data, size_t length)
     {
         if (length >= sizeof(uint32_t))
         {
-            capture->callback(((uint8_t*) data) + sizeof(uint32_t), length - sizeof(uint32_t));
+            capture->callback(event.remoteNodeId, ((uint8_t*) data) + sizeof(uint32_t), length - sizeof(uint32_t));
         }
 
         capture->callInProgress = false;
@@ -221,29 +223,42 @@ RpcClient::RpcClient(uint adapter, uint id)
     impl->callback = defaultCallback;
     impl->interrupt.reset(new Interrupt(adapter, id, handleInterrupt));
 
-    Log::debug("RPC client created on adapter %u", adapter);
+    Log::debug("Information service client %u running on adapter %u", id, adapter);
 }
 
 
 bool RpcClient::getRemoteSegmentInfo(uint nodeId, uint segmentId, SegmentInfo& info)
 {
-    std::lock_guard<std::mutex> lock(impl->callLock);
+    Log::debug("Querying node %u about segment %u...", nodeId, segmentId);
+    std::unique_lock<std::mutex> lock(impl->callLock);
 
     // Prepare to send request
     bool success = false;
     Type request = Type::GetSegmentInfo;
 
     impl->callInProgress = true;
-    impl->callback = [this, &success, &info](const void* data, size_t length)
+    impl->callback = [this, nodeId, segmentId, &success, &info](uint origNodeId, const void* data, size_t length)
     {
+        if (nodeId != origNodeId)
+        {
+            Log::error("Expected response from node %u but got interrupt from node %u",
+                    nodeId, origNodeId);
+            return;
+        }
+
         if (length < sizeof(SegmentInfo))
         {
-            Log::error("Expected segment info response but got garbage");
-            success = false;
+            Log::error("Expected information response but got something else from node %u", nodeId);
             return;
         }
 
         info = *((SegmentInfo*) data);
+        if (info.id != segmentId)
+        {
+            Log::error("Expected information response about segment %u from node %u but got for segment %u",
+                    segmentId, origNodeId, info.id);
+        }
+
         success = true;
     };
 
@@ -252,11 +267,18 @@ bool RpcClient::getRemoteSegmentInfo(uint nodeId, uint segmentId, SegmentInfo& i
     {
         impl->callback = defaultCallback;
         impl->callInProgress = false;
-        throw runtime_error("Failed to send RPC request");
+        throw runtime_error("Failed to send information service request");
     }
 
     // Wait for response
     while (impl->callInProgress);
+    lock.release();
+
+    if (!success)
+    {
+        Log::warn("Querying remote node %u about segment %u failed", nodeId, segmentId);
+    }
 
     return success;
 }
+

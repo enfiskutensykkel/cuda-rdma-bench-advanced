@@ -168,7 +168,8 @@ Segment::Segment(shared_ptr<SegmentImpl> impl, const std::set<uint>& adapters, u
         Log::debug("Prepared segment %u on adapter %u with IO address 0x%x", id, adapter, IOAddress(impl->segment));
     }
 
-    Log::info("Created local segment %u with physical address 0x%x", id, physicalAddress(impl->segment));
+    Log::debug("Created local segment %u with physical address 0x%x size %s", 
+            id, physicalAddress(impl->segment), humanReadable(size).c_str());
 }
 
 
@@ -251,7 +252,8 @@ void Segment::setAvailable(uint adapter)
         // Save export state
         exported->second = true;
 
-        Log::info("Segment %u is available on node %u", id, localId);
+        Log::info("Segment %u (%s) is available on node %u", 
+                id, humanReadable(size).c_str(), localId);
     }
 }
 
@@ -303,3 +305,4 @@ void Segment::getConnections(std::vector<uint>& conns) const
         }
     }
 }
+

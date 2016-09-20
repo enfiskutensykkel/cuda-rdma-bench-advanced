@@ -183,3 +183,4 @@ uint32_t getLocalNodeId(uint adapter)
 
     return nodeId;
 }
+

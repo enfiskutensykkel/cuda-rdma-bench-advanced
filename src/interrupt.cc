@@ -37,13 +37,17 @@ interruptCallback(InterruptImpl* intrData, sci_local_data_interrupt_t, void* dat
     if (length > sizeof(uint32_t))
     {
         uint32_t remoteNodeId = ntohl(*((uint32_t*) data));
-        Log::debug("Got interrupt from remote node %u", remoteNodeId);
+        Log::debug("Got interrupt %u from remote node %u on adapter %u", 
+            intrData->intno,
+            remoteNodeId,
+            intrData->adapter
+        );
     
         const void* dataPtr = (const void*) (((uint8_t*) data) + sizeof(uint32_t));
 
         const InterruptEvent event = {
             .interruptNo = intrData->intno,
-            .localAdapterNo = intrData->adapter,
+            .adapter = intrData->adapter,
             .remoteNodeId = remoteNodeId,
             .timestamp = currentTime()
         };
@@ -122,5 +126,6 @@ Interrupt::Interrupt(uint adapter, uint interruptNo, IntrCallback cb)
         throw runtime_error(scierrstr(err));
     }
 
-    Log::info("Created interrupt %u on adapter %u", interruptNo, adapter);
+    Log::debug("Created interrupt %u on adapter %u", interruptNo, adapter);
 }
+

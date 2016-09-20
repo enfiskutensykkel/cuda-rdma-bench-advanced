@@ -11,7 +11,7 @@
 struct InterruptEvent
 {
     uint        interruptNo;    // interrupt number of the triggered interrupt
-    uint        localAdapterNo; // the local adapter the interrupt was triggered on
+    uint        adapter;        // the local adapter the interrupt was triggered on
     uint        remoteNodeId;   // node identifier of the node that triggered the interrupt
     uint64_t    timestamp;      // timestamp of the interrupt
 };

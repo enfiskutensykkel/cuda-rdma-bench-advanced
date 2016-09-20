@@ -1,7 +1,9 @@
 #include <string>
 #include <stdexcept>
-#include <signal.h>
 #include <vector>
+#include <mutex>
+#include <condition_variable>
+#include <signal.h>
 #include "rpc.h"
 #include "segment.h"
 #include "benchmark.h"
@@ -9,20 +11,25 @@
 
 
 static bool keepRunning = true;
+static std::condition_variable_any doneSignal;
+static std::mutex mutex;
 
 
 static void stopServer(int)
 {
     keepRunning = false;
+    doneSignal.notify_all();
 }
 
 
 int runBenchmarkServer(SegmentMap& segments, ChecksumCallback callback)
 {
+    // Vector of information request handlers
     std::vector<RpcServer> rpcHandlers;
 
     try
     {
+        // Loop through all segments and export on adapters
         for (auto it = segments.begin(); it != segments.end(); ++it)
         {
             SegmentPtr& segment = it->second;
@@ -30,7 +37,7 @@ int runBenchmarkServer(SegmentMap& segments, ChecksumCallback callback)
             // Export segments on all adapters
             for (uint adapter: segment->adapters)
             {
-                // Handle RPC for segment
+                // Handle information requests for segment
                 rpcHandlers.push_back(RpcServer(adapter, segment, callback));
 
                 // Set available on adapter
@@ -55,7 +62,9 @@ int runBenchmarkServer(SegmentMap& segments, ChecksumCallback callback)
 
     // Run server
     Log::info("Running server...");
-    while (keepRunning);
+    mutex.lock();
+    doneSignal.wait(mutex, []() { return !keepRunning; });
+    mutex.unlock();    
 
     // Stop server
     Log::info("Shutting down server...");
@@ -75,3 +84,4 @@ int runBenchmarkServer(SegmentMap& segments, ChecksumCallback callback)
 
     return 0;
 }
+
