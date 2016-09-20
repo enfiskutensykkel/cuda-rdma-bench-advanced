@@ -43,7 +43,7 @@ connectEvent(SegmentImpl* info, sci_local_segment_t, sci_segment_cb_reason_t rea
     switch (reason)
     {
         case SCI_CB_CONNECT:
-            Log::info("Segment %u got connection from remote node %u on adapter %u", info->id, nodeId, adapter);
+            Log::info("Remote node %u connected to segment %u on adapter %u", nodeId, info->id, adapter);
             {
                 std::lock_guard<std::mutex> lock(info->segmentLock);
                 info->connections[nodeId]++;
@@ -168,7 +168,7 @@ Segment::Segment(shared_ptr<SegmentImpl> impl, const std::set<uint>& adapters, u
         Log::debug("Prepared segment %u on adapter %u with IO address 0x%x", id, adapter, IOAddress(impl->segment));
     }
 
-    Log::debug("Created local segment %u with physical address 0x%x size %s", 
+    Log::debug("Created local segment %u with physical address 0x%x and size %s", 
             id, physicalAddress(impl->segment), humanReadable(size).c_str());
 }
 

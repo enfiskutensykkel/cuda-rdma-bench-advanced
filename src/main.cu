@@ -91,25 +91,33 @@ static void createTransfers(const DmaJobList& jobSpecs, TransferList& transfers,
 
         const SegmentPtr& localSegment = segment->second;
 
-        // Notify user about potential error condition
-        switch ((!!(localSegment->flags | SCI_FLAG_DMA_GLOBAL) << 1) | !!(job->flags | SCI_FLAG_DMA_GLOBAL))
+        // Notify user about potential error condition with combination of segment and transfer flags
+        switch ((!!(localSegment->flags & SCI_FLAG_DMA_GLOBAL) << 1) | !!(job->flags & SCI_FLAG_DMA_GLOBAL))
         {
-            case 0:
-                break;
-
             case 2:
-                Log::warn("Segment %u is created with SCI_FLAG_GLOBAL_DMA but transfer is non-global", localSegment->id);
+                Log::info("Segment %u is created with SCI_FLAG_DMA_GLOBAL but transfer is not", localSegment->id);
                 break;
 
             case 1:
-                Log::warn("Transfer specifies SCI_FLAG_GLOBAL_DMA but local segment %u is non-global", localSegment->id);
+                Log::warn("Transfer specifies SCI_FLAG_DMA_GLOBAL but local segment %u is not", localSegment->id);
                 break;
 
+            case 0:
             case 3:
-                Log::debug("Using global DMA for segment %u", localSegment->id);
                 break;
         }
-        
+
+        if (!!(job->flags & SCI_FLAG_DMA_GLOBAL) && !!(job->flags & SCI_FLAG_DMA_SYSDMA))
+        {
+            Log::warn("Both SCI_FLAG_DMA and SCI_FLAG_DMA_SYSDMA are set");
+        }
+
+        // Check if GPU segment is prepared on adapter
+        if (localSegment->adapters.find(job->localAdapterNo) == localSegment->adapters.end())
+        {
+            Log::warn("Segment %u is not prepared on adapter %u", localSegment->id, job->localAdapterNo);
+        }
+
         // Connect to remote end and create transfer handle
         TransferPtr transfer = Transfer::create(localSegment, job->remoteNodeId, job->remoteSegmentId, job->localAdapterNo, job->flags);
 

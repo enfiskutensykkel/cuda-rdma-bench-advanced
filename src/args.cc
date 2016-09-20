@@ -305,18 +305,6 @@ static void parseTransferString(const string& transferString, DmaJobList& transf
         throw string("Remote node id must be specified for transfers");
     }
 
-    // Check flag combination
-    if (!!(transfer->flags & SCI_FLAG_DMA_GLOBAL) && !!(transfer->flags & SCI_FLAG_DMA_SYSDMA))
-    {
-        throw string("Can not set both global and system DMA");
-    }
-
-    // Check DMA vector length
-    if (transfer->vector.size() >= DIS_DMA_MAX_VECLEN)
-    {
-        throw "DMA vector length can't exceed " + to_string(DIS_DMA_MAX_VECLEN) + " elements";
-    }
-
     transfers.push_back(transfer);
 }
 

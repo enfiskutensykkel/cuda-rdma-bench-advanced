@@ -40,8 +40,12 @@ static void transferDma(Barrier barrier, TransferPtr transfer, uint64_t* time, s
         totalSize += entry.size;
     }
 
-    Log::debug("Ready to perform DMA transfer (local segment: %u, remote node: %u, remote segment: %u)",
-            transfer->localSegmentId, transfer->remoteNodeId, transfer->remoteSegmentId);
+    Log::debug("Ready to perform DMA transfer (ls: %u, rn: %u, rs: %u, sysdma: %s, global: %s, read: %s)",
+        transfer->localSegmentId, transfer->remoteNodeId, transfer->remoteSegmentId,
+        !!(transfer->flags & SCI_FLAG_DMA_SYSDMA) ? "yes" : "no",
+        !!(transfer->flags & SCI_FLAG_DMA_GLOBAL) ? "yes" : "no",
+        !!(transfer->flags & SCI_FLAG_DMA_READ) ? "yes" : "no"
+    );
 
     sci_dma_queue_t queue = transfer->getDmaQueue();
     sci_local_segment_t lseg = transfer->getLocalSegment();
@@ -72,15 +76,14 @@ static void writeTransferResults(FILE* reportFile, size_t num, const TransferPtr
         transferSize += entry.size;
     }
 
-    double megabytesPerSecond = ((double) transferSize) / ((double) time);
-    fprintf(reportFile, " %3zu   %4u   %6s   %6s   %13s   %10lu µs   %7.2f MiB/s   %4s\n", 
+    fprintf(reportFile, " %3zu   %4u   %3s   %3s   %13s   %10lu µs   %16s   %4s\n", 
         num, 
         transfer->remoteNodeId,
         "ram",
         "ram",
         humanReadable(transferSize).c_str(),
         status != SCI_ERR_OK ? 0 : time,
-        megabytesPerSecond,
+        humanReadable(transferSize, time).c_str(),
         status != SCI_ERR_OK ? "FAIL" : "OK"
     );
 }
@@ -139,14 +142,14 @@ int runBenchmarkClient(const TransferList& transfers, FILE* reportFile)
 
         if (status[threadIdx] != SCI_ERR_OK)
         {
-            Log::warn("Transfer %zu failed: %s", threadIdx, scierrstr(status[threadIdx]));
+            Log::error("Transfer %zu failed: %s", threadIdx, scierrstr(status[threadIdx]));
         }
     }
     Log::info("All transfers done");
 
     // Write benchmark report
-    fprintf(reportFile, " %3s   %-4s   %-6s   %-6s   %-13s   %-13s   %-12s   %-4s\n",
-            "#", "node", "source", "target", "transfer size", "transfer time", "throughput", "note");
+    fprintf(reportFile, " %3s   %-4s   %-3s   %-3s   %-13s   %-13s   %-16s   %4s\n",
+            "#", "node", "src", "dst", "transfer size", "transfer time", "throughput", "note");
     for (size_t i = 0; i < 80; ++i)
     {
         fputc('=', reportFile);

@@ -54,6 +54,10 @@ uint64_t physicalAddress(sci_local_segment_t segment);
 std::string humanReadable(size_t bytes);
 
 
+/* Convert transfer speed into a convenient human readable form */
+std::string humanReadable(size_t bytes, uint64_t usecs);
+
+
 /* Get local node id on an adapter */
 uint32_t getLocalNodeId(uint adapter);
 

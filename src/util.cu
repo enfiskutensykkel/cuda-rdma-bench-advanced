@@ -10,6 +10,8 @@
 #include "log.h"
 #include "util.h"
 
+using std::string;
+
 
 void getDeviceInfo(int deviceId, DeviceInfo& info)
 {
@@ -149,9 +151,9 @@ uint64_t physicalAddress(sci_local_segment_t segment)
 }
 
 
-std::string humanReadable(size_t bytes)
+string humanReadable(size_t bytes)
 {
-    char buffer[1024];
+    char buffer[32];
     const char* units[] = { "B  ", "KiB", "MiB", "GiB", "TiB" };
     const size_t n = sizeof(units) / sizeof(units[0]);
 
@@ -165,8 +167,18 @@ std::string humanReadable(size_t bytes)
     }
 
     snprintf(buffer, sizeof(buffer), "%.2f %s", csize, units[i]);
-    return std::string(buffer);
+    return string(buffer);
 }
+
+
+string humanReadable(size_t bytes, uint64_t usecs)
+{
+    char buffer[32];
+    double MiBPerSecond = ((double) bytes) / ((double) usecs);
+    snprintf(buffer, sizeof(buffer), "%.2f MiB/s", MiBPerSecond);
+    return string(buffer);
+}
+
 
 
 uint32_t getLocalNodeId(uint adapter)
