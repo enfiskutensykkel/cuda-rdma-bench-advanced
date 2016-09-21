@@ -16,15 +16,42 @@
 #include "log.h"
 #include "args.h"
 
-#define GPU_BOUND_MASK ((((uintptr_t) 1) << 16) - 1)
 
-
-typedef std::shared_ptr<void> BufferPtr;
 typedef std::map<uint, BufferPtr> BufferMap;
+typedef std::map<uint, int> DeviceMap;
+
+
+/* Fill buffers with a random value */
+static void fillBuffers(const SegmentMap& segments, const BufferMap& buffers, const DeviceMap& devices)
+{
+    for (auto segmentIt = segments.begin(); segmentIt != segments.end(); ++segmentIt)
+    {
+        const SegmentPtr segment = segmentIt->second;
+
+        srand(currentTime());
+        const uint8_t randomValue = (rand() & 0xee) | 2; // should never be 0x00 or 0xff
+
+        auto bufferIt = buffers.find(segment->id);
+        if (bufferIt != buffers.end())
+        {
+            Log::info("Filling segment %u with value %02X, this might take some time...",
+                    segment->id, randomValue);
+
+            fillBuffer(devices.at(segment->id), bufferIt->second, segment->size, randomValue);
+        }
+        else
+        {
+            Log::info("Filling RAM segment %u with value %02X, this might take some time...",
+                    segment->id, randomValue);
+
+            fillSegment(segment->getSegment(), segment->size, randomValue);
+        }
+    }
+}
 
 
 /* Iterate over segment infos and create segments accordingly */
-static void createSegments(SegmentSpecMap& segmentSpecs, SegmentMap& segments, BufferMap& buffers)
+static void createSegments(SegmentSpecMap& segmentSpecs, SegmentMap& segments, BufferMap& buffers, DeviceMap& devices)
 {
     for (auto segmentIt = segmentSpecs.begin(); segmentIt != segmentSpecs.end(); ++segmentIt)
     {
@@ -33,37 +60,11 @@ static void createSegments(SegmentSpecMap& segmentSpecs, SegmentMap& segments, B
 
         if (spec->deviceId != NO_DEVICE)
         {
-            const int deviceId = spec->deviceId;
+            BufferPtr buffer(allocDeviceMem(spec->deviceId, spec->size));
+            buffers[spec->segmentId] = buffer;
+            devices[spec->segmentId] = spec->deviceId;
 
-            cudaError_t err = cudaSetDevice(deviceId);
-            if (err != cudaSuccess)
-            {
-                Log::error("Failed to initialize GPU %d: %s", deviceId, cudaGetErrorString(err));
-                throw std::string(cudaGetErrorString(err));
-            }
-                
-            void* bufferPtr;
-            err = cudaMalloc(&bufferPtr, spec->size);
-            if (err != cudaSuccess)
-            {
-                Log::error("Failed to allocate buffer on GPU %d: %s", deviceId, cudaGetErrorString(err));
-                throw std::string(cudaGetErrorString(err));
-            }
-
-            Log::debug("Allocated buffer on GPU %d (%p)", deviceId, bufferPtr);
-
-            auto release = [deviceId](void* buffer) {
-                Log::debug("Freeing GPU buffer on device %d (%p)", deviceId, buffer);
-                cudaFree(buffer);
-            };
-
-            buffers[spec->segmentId] = BufferPtr(bufferPtr, release);
-
-            void* devicePtr = getDevicePtr(bufferPtr);
-            if ((((uintptr_t) devicePtr) & GPU_BOUND_MASK) != 0)
-            {
-                Log::warn("Device pointer is not 64 KiB aligned: %p", devicePtr);
-            }
+            void* devicePtr = getDevicePtr(buffer);
             segment = Segment::createWithPhysMem(spec->segmentId, spec->size, spec->adapters, spec->deviceId, devicePtr, spec->flags);
         }
         else
@@ -141,8 +142,6 @@ static void createTransfers(const DmaJobList& jobSpecs, TransferList& transfers,
             transfer->addVectorEntry(vecEntry);
         }
 
-        // TODO: Handle verify
-
         transfers.push_back(transfer);
     }
 }
@@ -152,12 +151,13 @@ int main(int argc, char** argv)
 {
     SegmentSpecMap segmentSpecs;
     DmaJobList transferSpecs;
+    bool verify = false;
 
     // Parse command line arguments
     try
     {
         Log::Level logLevel = Log::Level::WARN;
-        parseArguments(argc, argv, segmentSpecs, transferSpecs, logLevel);
+        parseArguments(argc, argv, segmentSpecs, transferSpecs, logLevel, verify);
         Log::init(stderr, logLevel);
     }
     catch (int error)
@@ -181,11 +181,13 @@ int main(int argc, char** argv)
 
     SegmentMap segments;
     BufferMap buffers;
+    DeviceMap devices;
 
     // Allocate buffers and create segments
     try
     {
-        createSegments(segmentSpecs, segments, buffers);
+        createSegments(segmentSpecs, segments, buffers, devices);
+        fillBuffers(segments, buffers, devices);
     }
     catch (const std::string& error)
     {
@@ -215,26 +217,33 @@ int main(int argc, char** argv)
         return 2;
     }
 
+    // Create checksum callback
+    ChecksumCallback calc = [&buffers, &segments](const Segment& segment, size_t offset, size_t size, uint32_t& checksum) -> bool
+    {
+        return false;
+    };
+
     if (transfers.empty())
     {
-        ChecksumCallback calcChecksum = [&buffers, &segments](const Segment& segment, uint32_t& checksum) -> bool
-        {
-            return false;
-        };
 
         // No transfers specified, run as server
-        if (runBenchmarkServer(segments, calcChecksum) != 0)
+        if (runBenchmarkServer(segments, calc) != 0)
         {
+            fprintf(stderr, "Server failed!\n");
+        }
+    }
+    else if (verify)
+    {
+        // Validate transfers
+        if (validateTransfers(transfers, calc, stdout) != 0)
+        {
+            fprintf(stderr, "Validation failed!\n");
         }
     }
     else
     {
         // Run benchmark client
-        if (runBenchmarkClient(transfers, stdout) != 0)
-        {
-        }
-
-        // TODO: if validate, validate()
+        runBenchmarkClient(transfers, stdout);
     }
 
     // Nuke any active SISCI handles

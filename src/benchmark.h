@@ -11,6 +11,10 @@
 int runBenchmarkServer(SegmentMap& segments, ChecksumCallback calculateChecksum);
 
 
-int runBenchmarkClient(const TransferList& transfers, FILE* reportFile);
+void runBenchmarkClient(const TransferList& transfers, FILE* reportFile);
+
+
+int validateTransfers(const TransferList& transfers, ChecksumCallback calculateChecksum, FILE* reportFile);
+
 
 #endif

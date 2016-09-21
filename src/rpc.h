@@ -10,7 +10,7 @@
 #include "util.h"
 
 
-typedef std::function<bool (const Segment& segment, uint32_t& checksum)> ChecksumCallback;
+typedef std::function<bool (const Segment& segment, size_t offset, size_t size, uint32_t& checksum)> ChecksumCallback;
 
 
 struct RpcServerImpl;
@@ -46,6 +46,8 @@ class RpcClient
         RpcClient(uint adapter, uint id);
 
         bool getRemoteSegmentInfo(uint nodeId, uint segmentId, SegmentInfo& info);
+
+        bool calculateChecksum(uint nodeId, uint segmentId, size_t offset, size_t size, uint32_t& checksum);
 
     private:
         std::shared_ptr<RpcClientImpl> impl;

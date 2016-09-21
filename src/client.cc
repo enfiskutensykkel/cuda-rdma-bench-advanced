@@ -3,6 +3,7 @@
 #include <map>
 #include <string>
 #include <limits>
+#include <stdexcept>
 #include <cstdint>
 #include <cstdio>
 #include <sisci_types.h>
@@ -22,8 +23,84 @@ using std::pair;
 using std::make_pair;
 
 
-/* Convenience type for mapping segment info */
-typedef map<pair<uint, uint>, SegmentInfo> SegmentInfoMap;
+static void writeTransferResults(FILE* reportFile, const TransferList& transfers, uint64_t* completionTimes, sci_error_t* transferStatus)
+{
+    map<pair<uint, uint>, SegmentInfo> segmentInfoCache;
+    const char* remoteSegmentKind[transfers.size()];
+
+    // Figure out the segment types of the remote segments
+    for (size_t i = 0; i < transfers.size(); ++i)
+    {
+        const TransferPtr& transfer = transfers[i];
+        remoteSegmentKind[i] = "???";
+
+        auto segmentKey = make_pair(transfer->remoteNodeId, transfer->remoteSegmentId);
+
+        // Look up (and insert if not found) from the remote segment information cache
+        auto lowerBound = segmentInfoCache.lower_bound(segmentKey);
+        if (lowerBound == segmentInfoCache.end() || lowerBound->first != segmentKey)
+        {
+            SegmentInfo segmentInfo;
+            
+            RpcClient infoServiceClient(transfer->adapter, transfer->localSegmentId);
+            if (infoServiceClient.getRemoteSegmentInfo(transfer->remoteNodeId, transfer->remoteSegmentId, segmentInfo))
+            {
+                segmentInfoCache.insert(lowerBound, make_pair(segmentKey, segmentInfo));
+            }
+
+            remoteSegmentKind[i] = segmentInfo.isDeviceMem ? "gpu" : "ram";
+        }
+    }
+
+    // Write results headline
+    fprintf(reportFile, " %3s   %-4s   %-3s   %-3s   %-3s   %-13s   %-13s   %-16s   %4s\n",
+            "#", "node", "src", "dst", "read", "transfer size", "transfer time", "throughput", "note");
+    for (size_t i = 0; i < 89; ++i)
+    {
+        fputc('=', reportFile);
+    }
+    fputc('\n', reportFile);
+
+    // Write results for each transfer
+    for (size_t i = 0; i < transfers.size(); ++i)
+    {
+        const TransferPtr& transfer = transfers[i];
+
+        // Calculate total transfer size
+        size_t transferSize = 0;
+        for (const dis_dma_vec_t& entry : transfer->getDmaVector())
+        {
+            transferSize += entry.size;
+        }
+
+        // Which direction did we transfer?
+        const char* sourceType = "???";
+        const char* destType = "???";
+        if (!!(transfer->flags & SCI_FLAG_DMA_READ))
+        {
+            sourceType = remoteSegmentKind[i];
+            destType = !!(transfer->getLocalSegmentPtr()->flags & SCI_FLAG_EMPTY) ? "gpu" : "ram";
+        }
+        else
+        {
+            sourceType = !!(transfer->getLocalSegmentPtr()->flags & SCI_FLAG_EMPTY) ? "gpu" : "ram";
+            destType = remoteSegmentKind[i];
+        }
+
+        // Write report line
+        fprintf(reportFile, " %3zu   %4u   %3s   %3s   %4s   %13s   %10lu µs   %16s   %4s\n", 
+            i,
+            transfer->remoteNodeId,
+            sourceType,
+            destType,
+            !!(transfer->flags & SCI_FLAG_DMA_READ) ? "yes" : "no",
+            humanReadable(transferSize).c_str(),
+            transferStatus[i] == SCI_ERR_OK ? 0 : completionTimes[i],
+            humanReadable(transferSize, completionTimes[i]).c_str(),
+            transferStatus[i] != SCI_ERR_OK ? "FAIL" : "OK"
+        );
+    }
+}
 
 
 static void transferDma(Barrier barrier, TransferPtr transfer, uint64_t* time, sci_error_t* err)
@@ -40,8 +117,8 @@ static void transferDma(Barrier barrier, TransferPtr transfer, uint64_t* time, s
         totalSize += entry.size;
     }
 
-    Log::debug("Ready to perform DMA transfer (ls: %u, rn: %u, rs: %u, sysdma: %s, global: %s, read: %s)",
-        transfer->localSegmentId, transfer->remoteNodeId, transfer->remoteSegmentId,
+    Log::debug("Ready to perform DMA transfer (rn: %u, rs: %u, ls: %u, sysdma: %s, global: %s, read: %s)",
+        transfer->remoteNodeId, transfer->remoteSegmentId, transfer->localSegmentId,
         !!(transfer->flags & SCI_FLAG_DMA_SYSDMA) ? "yes" : "no",
         !!(transfer->flags & SCI_FLAG_DMA_GLOBAL) ? "yes" : "no",
         !!(transfer->flags & SCI_FLAG_DMA_READ) ? "yes" : "no"
@@ -69,58 +146,67 @@ static void transferDma(Barrier barrier, TransferPtr transfer, uint64_t* time, s
 }
 
 
-static void writeTransferResults(FILE* reportFile, const TransferPtr& transfer, const SegmentInfo* info, uint64_t time, sci_error_t status, size_t num)
+int validateTransfers(const TransferList& transfers, ChecksumCallback calculateCheksum, FILE* reportFile)
 {
-    size_t transferSize = 0;
-
-    const DmaVector& vector = transfer->getDmaVector();
-    for (const dis_dma_vec_t& entry : vector)
+    // Create info service clients
+    map<pair<uint, uint>, RpcClient> serviceClients;
+    try
     {
-        transferSize += entry.size;
-    }
-
-    const char* sourceType = !!(transfer->getLocalSegmentPtr()->flags & SCI_FLAG_EMPTY) ? "gpu" : "ram";
-
-    const char* destinationType = "???";
-    if (info != nullptr)
-    {
-        destinationType = info->isDeviceMem ? "gpu" : "ram";
-    }
-
-    fprintf(reportFile, " %3zu   %4u   %3s   %3s   %13s   %10lu µs   %16s   %4s\n", 
-        num, 
-        transfer->remoteNodeId,
-        sourceType,
-        destinationType,
-        humanReadable(transferSize).c_str(),
-        status != SCI_ERR_OK ? 0 : time,
-        humanReadable(transferSize, time).c_str(),
-        status != SCI_ERR_OK ? "FAIL" : "OK"
-    );
-}
-
-
-int runBenchmarkClient(const TransferList& transfers, FILE* reportFile)
-{
-    // Get data about remote segments
-    SegmentInfoMap segmentInfoMap;
-    for (TransferPtr transfer : transfers)
-    {
-        auto key = make_pair(transfer->remoteNodeId, transfer->remoteSegmentId);
-
-        SegmentInfoMap::iterator lowerBound = segmentInfoMap.lower_bound(key);
-        if (lowerBound == segmentInfoMap.end() || lowerBound->first != key)
+        for (const TransferPtr& transfer : transfers)
         {
-            SegmentInfo info;
+            auto key = make_pair(transfer->remoteNodeId, transfer->remoteSegmentId);
 
-            RpcClient client(transfer->adapter, transfer->localSegmentId);
-            if (client.getRemoteSegmentInfo(transfer->remoteNodeId, transfer->remoteSegmentId, info))
+            auto lowerBound = serviceClients.lower_bound(key);
+            if (lowerBound == serviceClients.end() || lowerBound->first != key)
             {
-                segmentInfoMap.insert(lowerBound, make_pair(key, info));
+                RpcClient client(transfer->adapter, transfer->localSegmentId);
+                
+                serviceClients.insert(lowerBound, make_pair(key, client));
             }
         }
     }
+    catch (const std::runtime_error& error)
+    {
+        Log::error("%s", error.what());
+        return 2;
+    }
 
+    // Create benchmark data
+    uint64_t times[transfers.size()];
+    sci_error_t status[transfers.size()];
+    
+    // Execute transfers
+    Log::info("Validating transfers...");
+    for (size_t idx = 0; idx < transfers.size(); ++idx)
+    {
+        Barrier fakeBarrier(1);
+        times[idx] = std::numeric_limits<uint64_t>::max();
+        status[idx] = SCI_ERR_OK;
+
+        // Get checksum of remote segment
+        
+        // Calculate checksum of local segment
+
+        // Execute transfer
+        transferDma(fakeBarrier, transfers[idx], &times[idx], &status[idx]);
+
+        // Get checksum of remote segment again
+        
+        // Calculate checksum of local segment
+        
+        
+    }
+    Log::info("Done validating transfers");
+
+    // Write results
+    writeTransferResults(reportFile, transfers, times, status);
+
+    return 0;
+}
+
+
+void runBenchmarkClient(const TransferList& transfers, FILE* reportFile)
+{
     // Create thread barrier to synchronize transfer threads
     const size_t numTransfers = transfers.size();
     Barrier barrier(numTransfers + 1);
@@ -160,28 +246,6 @@ int runBenchmarkClient(const TransferList& transfers, FILE* reportFile)
     Log::info("All transfers done");
 
     // Write benchmark report
-    fprintf(reportFile, " %3s   %-4s   %-3s   %-3s   %-13s   %-13s   %-16s   %4s\n",
-            "#", "node", "src", "dst", "transfer size", "transfer time", "throughput", "note");
-    for (size_t i = 0; i < 82; ++i)
-    {
-        fputc('=', reportFile);
-    }
-    fputc('\n', reportFile);
-
-    for (size_t idx = 0; idx < numTransfers; ++idx)
-    {
-        const TransferPtr& transfer = transfers[idx];
-
-        const SegmentInfo* info = nullptr;
-        const auto segmentInfoIt = segmentInfoMap.find(make_pair(transfer->remoteNodeId, transfer->remoteSegmentId));
-        if (segmentInfoIt != segmentInfoMap.end())
-        {
-            info = &segmentInfoIt->second;
-        }
-
-        writeTransferResults(reportFile, transfer, info, times[idx], status[idx], idx);
-    }
-
-    return 0;
+    writeTransferResults(reportFile, transfers, times, status);
 }
 

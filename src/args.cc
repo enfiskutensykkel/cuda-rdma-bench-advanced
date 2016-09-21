@@ -351,7 +351,7 @@ static Log::Level parseVerbosity(const char* argument, uint level)
 
 
 /* Parse command line options */
-void parseArguments(int argc, char** argv, SegmentSpecMap& segments, DmaJobList& transfers, Log::Level& logLevel/*, bool& validate*/)
+void parseArguments(int argc, char** argv, SegmentSpecMap& segments, DmaJobList& transfers, Log::Level& logLevel, bool& validate)
 {
     int option;
     int index;
@@ -392,7 +392,7 @@ void parseArguments(int argc, char** argv, SegmentSpecMap& segments, DmaJobList&
                 break;
 
             case 'c': // Verify all remote segments
-                // TODO: loop through all transfers and identify remote segments, skip local global
+                validate = true;
                 break;
         }
     }

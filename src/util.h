@@ -1,10 +1,13 @@
 #ifndef __RDMA_BENCH_UTIL_H__
 #define __RDMA_BENCH_UTIL_H__
 
+#include <map>
+#include <memory>
 #include <string>
 #include <cstddef>
 #include <cstdint>
 #include <sisci_types.h>
+
 
 
 /* CUDA device info descriptor */
@@ -18,12 +21,28 @@ struct DeviceInfo
 };
 
 
+/* Convenience type for CUDA buffer */
+typedef std::shared_ptr<void> BufferPtr;
+
+
 /* Get information about a CUDA device */
 void getDeviceInfo(int deviceId, DeviceInfo& info);
 
 
+/* Allocate a buffer on a CUDA device with cudaMalloc */
+BufferPtr allocDeviceMem(int deviceId, size_t size);
+
+
+/* Fill buffer with value */
+void fillBuffer(int deviceId, const BufferPtr& buffer, size_t size, uint8_t value);
+
+
+/* Fill segment with value */
+void fillSegment(sci_local_segment_t segment, size_t size, uint8_t value);
+
+
 /* Get a CUDA device pointer from a pointer allocated with cudaMalloc */
-void* getDevicePtr(void* hostPointer);
+void* getDevicePtr(const BufferPtr& buffer);
 
 
 /* Get current timestamp (microseconds) */

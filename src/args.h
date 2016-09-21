@@ -50,7 +50,7 @@ typedef std::vector<DmaJobPtr> DmaJobList;
 
 
 /* Parse command line options and load settings */
-void parseArguments(int argc, char** argv, SegmentSpecMap& segments, DmaJobList& transfers, Log::Level& logLevel);
+void parseArguments(int argc, char** argv, SegmentSpecMap& segments, DmaJobList& transfers, Log::Level& logLevel, bool& verify);
 
 
 #endif
