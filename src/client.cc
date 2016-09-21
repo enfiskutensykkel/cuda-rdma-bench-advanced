@@ -23,9 +23,30 @@ using std::pair;
 using std::make_pair;
 
 
-static void writeTransferResults(FILE* reportFile, const TransferList& transfers, uint64_t* completionTimes, sci_error_t* transferStatus)
+/* Convenience type for information service clients */
+typedef map<pair<uint, uint>, RpcClient> ServiceClientMap;
+
+
+/* Create information service clients */
+static void createInfoServiceClients(const TransferList& transfers, ServiceClientMap& clients)
 {
-    map<pair<uint, uint>, SegmentInfo> segmentInfoCache;
+    for (const TransferPtr& transfer : transfers)
+    {
+        auto key = make_pair(transfer->adapter, transfer->localSegmentId);
+
+        auto lowerBound = clients.lower_bound(key);
+        if (lowerBound == clients.end() || lowerBound->first != key)
+        {
+            RpcClient client(transfer->adapter, transfer->localSegmentId);
+            clients.insert(lowerBound, make_pair(key, client));
+        }
+    }
+}
+
+
+/* Write transfer results to file in a neat table */
+static void writeTransferResults(FILE* reportFile, const TransferList& transfers, uint64_t* completionTimes, sci_error_t* transferStatus, ServiceClientMap& clients)
+{
     const char* remoteSegmentKind[transfers.size()];
 
     // Figure out the segment types of the remote segments
@@ -34,21 +55,22 @@ static void writeTransferResults(FILE* reportFile, const TransferList& transfers
         const TransferPtr& transfer = transfers[i];
         remoteSegmentKind[i] = "???";
 
-        auto segmentKey = make_pair(transfer->remoteNodeId, transfer->remoteSegmentId);
-
-        // Look up (and insert if not found) from the remote segment information cache
-        auto lowerBound = segmentInfoCache.lower_bound(segmentKey);
-        if (lowerBound == segmentInfoCache.end() || lowerBound->first != segmentKey)
+        // Find the information service client
+        auto serviceClient = clients.find(make_pair(transfer->adapter, transfer->localSegmentId));
+        if (serviceClient == clients.end())
         {
-            SegmentInfo segmentInfo;
-            
-            RpcClient infoServiceClient(transfer->adapter, transfer->localSegmentId);
-            if (infoServiceClient.getRemoteSegmentInfo(transfer->remoteNodeId, transfer->remoteSegmentId, segmentInfo))
-            {
-                segmentInfoCache.insert(lowerBound, make_pair(segmentKey, segmentInfo));
-                remoteSegmentKind[i] = segmentInfo.isDeviceMem ? "gpu" : "ram";
-            }
+            Log::warn("Couldn't find information service client for segment %u on adapter %u",
+                    transfer->localSegmentId, transfer->adapter);
+            continue;
         }
+
+        // Look up remote segment
+        SegmentInfo segmentInfo;
+        if (serviceClient->second.getRemoteSegmentInfo(transfer->remoteNodeId, transfer->remoteSegmentId, segmentInfo))
+        {
+            remoteSegmentKind[i] = segmentInfo.isDeviceMem ? "gpu" : "ram";
+        }
+
     }
 
     // Write results headline
@@ -148,20 +170,10 @@ static void transferDma(Barrier barrier, TransferPtr transfer, uint64_t* time, s
 int validateTransfers(const TransferList& transfers, ChecksumCallback calculateCheksum, FILE* reportFile)
 {
     // Create info service clients
-    map<pair<uint, uint>, RpcClient> serviceClients;
+    ServiceClientMap serviceClients;
     try
     {
-        for (const TransferPtr& transfer : transfers)
-        {
-            auto key = make_pair(transfer->remoteNodeId, transfer->remoteSegmentId);
-
-            auto lowerBound = serviceClients.lower_bound(key);
-            if (lowerBound == serviceClients.end() || lowerBound->first != key)
-            {
-                RpcClient client(transfer->adapter, transfer->localSegmentId);
-                //serviceClients.insert(lowerBound, make_pair(key, client));
-            }
-        }
+        createInfoServiceClients(transfers, serviceClients);
     }
     catch (const std::runtime_error& error)
     {
@@ -197,8 +209,7 @@ int validateTransfers(const TransferList& transfers, ChecksumCallback calculateC
     Log::info("Done validating transfers");
 
     // Write results
-    serviceClients.clear();
-    writeTransferResults(reportFile, transfers, times, status);
+    writeTransferResults(reportFile, transfers, times, status, serviceClients);
 
     return 0;
 }
@@ -245,6 +256,16 @@ void runBenchmarkClient(const TransferList& transfers, FILE* reportFile)
     Log::info("All transfers done");
 
     // Write benchmark report
-    writeTransferResults(reportFile, transfers, times, status);
+    ServiceClientMap clients;
+    try
+    {
+        createInfoServiceClients(transfers, clients);
+    }
+    catch (const std::runtime_error& error)
+    {
+        Log::error("Failed to create information service clients: %s", error.what());
+    }
+
+    writeTransferResults(reportFile, transfers, times, status, clients);
 }
 

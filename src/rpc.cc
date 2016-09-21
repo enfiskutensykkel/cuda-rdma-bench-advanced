@@ -1,6 +1,7 @@
 #include <functional>
 #include <mutex>
 #include <memory>
+#include <map>
 #include <stdexcept>
 #include <cstddef>
 #include <cstdint>
@@ -15,6 +16,10 @@
 #include "log.h"
 
 using std::runtime_error;
+using std::map;
+using std::make_pair;
+using std::pair;
+
 
 /* Convenience type for client callbacks */
 typedef std::function<void (uint, const void*, size_t)> Callback;
@@ -23,37 +28,38 @@ typedef std::function<void (uint, const void*, size_t)> Callback;
 /* RPC client data */
 struct RpcClientImpl
 {
-    bool            callInProgress; // caller blocks until this is false
-    std::mutex      callLock;       // avoid race conditions
-    Callback        callback;       // current callback
-    InterruptPtr    interrupt;      // local interrupt
+    bool                                callInProgress; // caller blocks until this is false
+    std::mutex                          callLock;       // avoid race conditions
+    Callback                            callback;       // current callback
+    InterruptPtr                        interrupt;      // local interrupt
+    map<pair<uint, uint>, SegmentInfo>  infoCache;      // reduce number of times going to server
 };
 
 
 /* RPC server data */
 struct RpcServerImpl
 {
-    SegmentPtr          segment;     // local segment
-    InterruptPtr        interrupt;   // local interrupt
-    ChecksumCallback    callback;    // checksum calculation callback
+    SegmentPtr                          segment;        // local segment
+    InterruptPtr                        interrupt;      // local interrupt
+    ChecksumCallback                    callback;       // checksum calculation callback
 };
 
 
 /* Request types */
 enum class Type : uint8_t
 {
-    GetSegmentInfo  = 0x01,         // get info about a remote segment
-    GetDeviceInfo   = 0x02,         // get info about a remote GPU
-    GetChecksum     = 0x03,         // calculate checksum for a remote segment
+    GetSegmentInfo                      = 0x01,         // get info about a remote segment
+    GetDeviceInfo                       = 0x02,         // get info about a remote GPU
+    GetChecksum                         = 0x03,         // calculate checksum for a remote segment
 };
 
 
 /* Message format */
 struct Message 
 {
-    uint32_t        origNodeId;     // node id of the request originator
-    uint32_t        origInterrupt;  // interrupt number to connect to backwards
-    uint8_t         payload[1];     // data payload
+    uint32_t                            origNodeId;     // node id of the request originator
+    uint32_t                            origInterrupt;  // interrupt number to connect to backwards
+    uint8_t                             payload[1];     // data payload
 };
 
 
@@ -229,6 +235,17 @@ RpcClient::RpcClient(uint adapter, uint id)
 
 bool RpcClient::getRemoteSegmentInfo(uint nodeId, uint segmentId, SegmentInfo& info)
 {
+    auto remoteSegmentKey = make_pair(nodeId, segmentId);
+
+    // Try to find segment info in cache
+    auto lowerBound = impl->infoCache.lower_bound(remoteSegmentKey);
+    if (lowerBound != impl->infoCache.end() && lowerBound->first == remoteSegmentKey)
+    {
+        info = lowerBound->second;
+        return true;
+    }
+
+
     Log::debug("Querying node %u about segment %u...", nodeId, segmentId);
     std::unique_lock<std::mutex> lock(impl->callLock);
 
@@ -277,8 +294,10 @@ bool RpcClient::getRemoteSegmentInfo(uint nodeId, uint segmentId, SegmentInfo& i
     if (!success)
     {
         Log::warn("Querying remote node %u about segment %u failed", nodeId, segmentId);
+        return false;
     }
 
-    return success;
+    impl->infoCache.insert(lowerBound, make_pair(remoteSegmentKey, info));
+    return true;
 }
 

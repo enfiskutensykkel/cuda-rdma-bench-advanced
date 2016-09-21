@@ -119,6 +119,12 @@ static void createTransfers(const DmaJobList& jobSpecs, TransferList& transfers,
             Log::warn("Segment %u is not prepared on adapter %u", localSegment->id, job->localAdapterNo);
         }
 
+        // Check transfer vector size
+        if (job->vector.size() > DIS_DMA_MAX_VECLEN)
+        {
+            Log::warn("DMA transfer vector exceeds %zu elements (DIS_DMA_MAX_VECLEN)", DIS_DMA_MAX_VECLEN);
+        }
+
         // Connect to remote end and create transfer handle
         TransferPtr transfer = Transfer::create(localSegment, job->remoteNodeId, job->remoteSegmentId, job->localAdapterNo, job->flags);
 
