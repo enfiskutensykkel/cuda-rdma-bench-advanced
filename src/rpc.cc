@@ -155,7 +155,7 @@ static bool sendSegmentInfo(const SegmentPtr& segment, uint adapter, uint nodeId
 
 
 /* Handle a RPC request from a client */
-static void handleRequest(const std::shared_ptr<RpcServerImpl>& impl, const InterruptEvent& event, const void* data, size_t length)
+static void handleRequest(const RpcServerImpl* impl, const InterruptEvent& event, const void* data, size_t length)
 {
     // Extract originator node id
     if (length != sizeof(Message) - sizeof(uint32_t))
@@ -189,7 +189,7 @@ RpcServer::RpcServer(uint adapter, const SegmentPtr& segment, ChecksumCallback c
     :
     impl(new RpcServerImpl)
 {
-    auto capture = impl;
+    auto capture = impl.get(); // Beware!!
     auto handleInterrupt = [capture](const InterruptEvent& event, const void* data, size_t length)
     {
         handleRequest(capture, event, data, length);
@@ -207,7 +207,7 @@ RpcClient::RpcClient(uint adapter, uint id)
     :
     impl(new RpcClientImpl)
 {
-    auto capture = impl;
+    auto capture = impl.get(); // Beware!!
     auto handleInterrupt = [capture](const InterruptEvent& event, const void* data, size_t length)
     {
         if (length >= sizeof(uint32_t))

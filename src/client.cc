@@ -46,9 +46,8 @@ static void writeTransferResults(FILE* reportFile, const TransferList& transfers
             if (infoServiceClient.getRemoteSegmentInfo(transfer->remoteNodeId, transfer->remoteSegmentId, segmentInfo))
             {
                 segmentInfoCache.insert(lowerBound, make_pair(segmentKey, segmentInfo));
+                remoteSegmentKind[i] = segmentInfo.isDeviceMem ? "gpu" : "ram";
             }
-
-            remoteSegmentKind[i] = segmentInfo.isDeviceMem ? "gpu" : "ram";
         }
     }
 
@@ -160,8 +159,7 @@ int validateTransfers(const TransferList& transfers, ChecksumCallback calculateC
             if (lowerBound == serviceClients.end() || lowerBound->first != key)
             {
                 RpcClient client(transfer->adapter, transfer->localSegmentId);
-                
-                serviceClients.insert(lowerBound, make_pair(key, client));
+                //serviceClients.insert(lowerBound, make_pair(key, client));
             }
         }
     }
@@ -199,6 +197,7 @@ int validateTransfers(const TransferList& transfers, ChecksumCallback calculateC
     Log::info("Done validating transfers");
 
     // Write results
+    serviceClients.clear();
     writeTransferResults(reportFile, transfers, times, status);
 
     return 0;

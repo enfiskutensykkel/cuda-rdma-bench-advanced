@@ -122,7 +122,7 @@ Interrupt::Interrupt(uint adapter, uint interruptNo, IntrCallback cb)
     if (err != SCI_ERR_OK)
     {
         impl->intr = nullptr;
-        Log::error("Failed to create interrupt on adapter %u: %s", adapter, scierrstr(err));
+        Log::error("Failed to create interrupt %u on adapter %u: %s", interruptNo, adapter, scierrstr(err));
         throw runtime_error(scierrstr(err));
     }
 
