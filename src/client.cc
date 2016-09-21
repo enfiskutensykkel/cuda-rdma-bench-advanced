@@ -59,6 +59,9 @@ static void transferDma(Barrier barrier, TransferPtr transfer, uint64_t* time, s
     SCIStartDmaTransferVec(queue, lseg, rseg, length, vector, nullptr, nullptr, SCI_FLAG_DMA_WAIT | transfer->flags, err);
     uint64_t timeAfter = currentTime();
 
+    // Wait for all threads
+    barrier.wait();
+
     if (*err == SCI_ERR_OK)
     {
         *time = timeAfter - timeBefore;
@@ -66,7 +69,7 @@ static void transferDma(Barrier barrier, TransferPtr transfer, uint64_t* time, s
 }
 
 
-static void writeTransferResults(FILE* reportFile, size_t num, const TransferPtr& transfer, uint64_t time, sci_error_t status)
+static void writeTransferResults(FILE* reportFile, const TransferPtr& transfer, const SegmentInfo* info, uint64_t time, sci_error_t status, size_t num)
 {
     size_t transferSize = 0;
 
@@ -76,11 +79,19 @@ static void writeTransferResults(FILE* reportFile, size_t num, const TransferPtr
         transferSize += entry.size;
     }
 
+    const char* sourceType = !!(transfer->getLocalSegmentPtr()->flags & SCI_FLAG_EMPTY) ? "gpu" : "ram";
+
+    const char* destinationType = "???";
+    if (info != nullptr)
+    {
+        destinationType = info->isDeviceMem ? "gpu" : "ram";
+    }
+
     fprintf(reportFile, " %3zu   %4u   %3s   %3s   %13s   %10lu µs   %16s   %4s\n", 
         num, 
         transfer->remoteNodeId,
-        "ram",
-        "ram",
+        sourceType,
+        destinationType,
         humanReadable(transferSize).c_str(),
         status != SCI_ERR_OK ? 0 : time,
         humanReadable(transferSize, time).c_str(),
@@ -134,6 +145,7 @@ int runBenchmarkClient(const TransferList& transfers, FILE* reportFile)
     Log::info("Preparing to start transfers...");
     barrier.wait();
     Log::info("Executing transfers...");
+    barrier.wait();
 
     // Wait for all transfers to complete
     for (size_t threadIdx = 0; threadIdx < numTransfers; ++threadIdx)
@@ -150,7 +162,7 @@ int runBenchmarkClient(const TransferList& transfers, FILE* reportFile)
     // Write benchmark report
     fprintf(reportFile, " %3s   %-4s   %-3s   %-3s   %-13s   %-13s   %-16s   %4s\n",
             "#", "node", "src", "dst", "transfer size", "transfer time", "throughput", "note");
-    for (size_t i = 0; i < 80; ++i)
+    for (size_t i = 0; i < 82; ++i)
     {
         fputc('=', reportFile);
     }
@@ -160,7 +172,14 @@ int runBenchmarkClient(const TransferList& transfers, FILE* reportFile)
     {
         const TransferPtr& transfer = transfers[idx];
 
-        writeTransferResults(reportFile, idx, transfer, times[idx], status[idx]);
+        const SegmentInfo* info = nullptr;
+        const auto segmentInfoIt = segmentInfoMap.find(make_pair(transfer->remoteNodeId, transfer->remoteSegmentId));
+        if (segmentInfoIt != segmentInfoMap.end())
+        {
+            info = &segmentInfoIt->second;
+        }
+
+        writeTransferResults(reportFile, transfer, info, times[idx], status[idx], idx);
     }
 
     return 0;

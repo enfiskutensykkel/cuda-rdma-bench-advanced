@@ -112,7 +112,7 @@ static void createTransfers(const DmaJobList& jobSpecs, TransferList& transfers,
             Log::warn("Both SCI_FLAG_DMA and SCI_FLAG_DMA_SYSDMA are set");
         }
 
-        // Check if GPU segment is prepared on adapter
+        // Check if segment is prepared on adapter
         if (localSegment->adapters.find(job->localAdapterNo) == localSegment->adapters.end())
         {
             Log::warn("Segment %u is not prepared on adapter %u", localSegment->id, job->localAdapterNo);
@@ -156,7 +156,7 @@ int main(int argc, char** argv)
     // Parse command line arguments
     try
     {
-        Log::Level logLevel = Log::Level::ERROR;
+        Log::Level logLevel = Log::Level::WARN;
         parseArguments(argc, argv, segmentSpecs, transferSpecs, logLevel);
         Log::init(stderr, logLevel);
     }

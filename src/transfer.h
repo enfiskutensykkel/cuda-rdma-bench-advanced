@@ -45,6 +45,8 @@ class Transfer
 
         sci_dma_queue_t getDmaQueue() const;
 
+        const SegmentPtr getLocalSegmentPtr() const;
+
     private:
         std::shared_ptr<TransferImpl> impl;
         Transfer(std::shared_ptr<TransferImpl> impl);

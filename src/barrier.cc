@@ -7,6 +7,7 @@ struct BarrierImpl
 {
     uint numThreads;
     uint numRemaining;
+    uint resetCount;
     std::mutex monitorLock;
     std::condition_variable waitingQueue;
 };
@@ -17,6 +18,7 @@ Barrier::Barrier(uint numThreads)
 {
     impl->numThreads = numThreads;
     impl->numRemaining = numThreads;
+    impl->resetCount = 0;
 }
 
 
@@ -27,9 +29,9 @@ void Barrier::wait()
     // Should we wait for others?
     if (--impl->numRemaining > 0)
     {    
-        // The lambda *should* handle spurious wakeups */
-        auto ready = [this] { 
-            return impl->numRemaining == impl->numThreads; 
+        uint countCopy = impl->resetCount;
+        auto ready = [this, countCopy] { 
+            return impl->resetCount > countCopy;
         };
 
         // Wait for other threads
@@ -37,7 +39,8 @@ void Barrier::wait()
     }
     else
     {
-        // We are the last threads, lets wake everyone up
+        // We are the last thread, lets wake everyone up
+        impl->resetCount++;
         impl->numRemaining = impl->numThreads;
         impl->waitingQueue.notify_all();
     }

@@ -188,3 +188,8 @@ sci_dma_queue_t Transfer::getDmaQueue() const
     return impl->dmaQueue;
 }
 
+
+const SegmentPtr Transfer::getLocalSegmentPtr() const
+{
+    return impl->localSegment;
+}
