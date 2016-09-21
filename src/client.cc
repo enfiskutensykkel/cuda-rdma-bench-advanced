@@ -74,11 +74,11 @@ static void writeTransferResults(FILE* reportFile, const TransferList& transfers
     }
 
     // Write results headline
-    fprintf(reportFile, " %3s   %-4s   %-3s   %-3s   %-3s   %-13s   %-13s   %-16s   %4s\n",
-            "#", "node", "src", "dst", "read", "transfer size", "transfer time", "throughput", "note");
+    fprintf(reportFile, "\n %3s   %-4s   %-3s   %-3s   %-3s   %-13s   %-13s   %-16s   %4s\n",
+            "#", "Node", "Src", "Dst", "Read", "Transfer size", "Transfer time", "Throughput", "Note");
     for (size_t i = 0; i < 89; ++i)
     {
-        fputc('=', reportFile);
+        fputc('-', reportFile);
     }
     fputc('\n', reportFile);
 
@@ -121,6 +121,7 @@ static void writeTransferResults(FILE* reportFile, const TransferList& transfers
             transferStatus[i] != SCI_ERR_OK ? "FAIL" : "OK"
         );
     }
+    fputc('\n', reportFile);
 }
 
 

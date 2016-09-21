@@ -282,7 +282,7 @@ void listGpus()
     // Print header
     fprintf(stderr, "\n %2s   %-20s   %-9s   %8s   %7s   %7s   %8s   %6s   %3s   %15s\n",
             "ID", "Device name", "IO addr", "Comp mod", "Managed", "Unified", "Map hmem", "#Async", "L1", "Global mem size");
-    fprintf(stderr, "-----------------------------------------------------------------------------------------------------------------\n");
+    fprintf(stderr, "------------------------------------------------------------------------------------------------------------------\n");
 
     // Iterate over devices and print properties
     for (int i = 0; i < deviceCount; ++i)
