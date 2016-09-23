@@ -284,9 +284,13 @@ void listGpus()
     }
 
     // Print header
-    fprintf(stderr, "\n %2s   %-20s   %-9s   %8s   %7s   %7s   %8s   %6s   %3s   %15s\n",
-            "ID", "Device name", "IO addr", "Comp mod", "Managed", "Unified", "Map hmem", "#Async", "L1", "Global mem size");
-    fprintf(stderr, "------------------------------------------------------------------------------------------------------------------\n");
+    fprintf(stderr, "\n %2s   %-15s   %-9s   %8s   %7s   %7s   %8s   %6s   %-3s   %-10s   %-10s\n",
+            "ID", "Device name", "IO addr", "Comp mod", "Managed", "Unified", "Map hmem", "#Async", "L1", "L2 size", "Mem size");
+    for (size_t i = 0; i < 117; ++i)
+    {
+        fputc('-', stderr);
+    }
+    fputc('\n', stderr);
 
     // Iterate over devices and print properties
     for (int i = 0; i < deviceCount; ++i)
@@ -299,7 +303,7 @@ void listGpus()
             throw std::string(cudaGetErrorString(err));
         }
 
-        fprintf(stderr, " %2d   %-20s   %02x:%02x.%-3x   %5d.%-2d   %7s   %7s   %8s   %6d   %3s   %10.02f MiB\n",
+        fprintf(stderr, " %2d   %-15s   %02x:%02x.%-3x   %5d.%-2d   %7s   %7s   %8s   %6d   %3s   %10s   %10s\n",
                 i, prop.name, prop.pciBusID, prop.pciDeviceID, prop.pciDomainID,
                 prop.major, prop.minor, 
                 prop.managedMemory ? "yes" : "no", 
@@ -307,7 +311,8 @@ void listGpus()
                 prop.canMapHostMemory ? "yes" : "no",
                 prop.asyncEngineCount,
                 prop.globalL1CacheSupported ? "yes" : "no",
-                prop.totalGlobalMem / (double) (1 << 20)
+                humanReadable(prop.l2CacheSize).c_str(),
+                humanReadable(prop.totalGlobalMem).c_str()
                );
     }
     fprintf(stderr, "\n");

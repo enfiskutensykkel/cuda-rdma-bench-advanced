@@ -47,7 +47,7 @@ class Segment
         // Get SISCI handle to local segment
         sci_local_segment_t getSegment() const;
 
-        void getConnections(std::vector<uint>& connections) const;
+        //void getConnections(std::vector<uint>& connections) const;
 
     private:
         std::shared_ptr<SegmentImpl> impl;

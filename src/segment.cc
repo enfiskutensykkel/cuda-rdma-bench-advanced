@@ -27,7 +27,8 @@ struct SegmentImpl
     map<uint, bool>         exports;        // map over exports ordered by adapter number
     DeviceInfo*             devInfo;        // device info
     std::mutex              segmentLock;    // lock to handle concurrency
-    map<uint, uint>         connections;    // current connections
+    //map<uint, uint>         connections;    // current connections
+    size_t                  numConnections; // number of current connections
 };
 
 
@@ -39,23 +40,29 @@ connectEvent(SegmentImpl* info, sci_local_segment_t, sci_segment_cb_reason_t rea
         Log::warn("Error condition in segment callback: %s", scierrstr(err));
     }
 
+    size_t numConnections = 0;
+
     // Report state
     switch (reason)
     {
         case SCI_CB_CONNECT:
-            Log::info("Remote node %u connected to segment %u on adapter %u", nodeId, info->id, adapter);
             {
                 std::lock_guard<std::mutex> lock(info->segmentLock);
-                info->connections[nodeId]++;
+                //info->connections[nodeId]++;
+                numConnections = ++(info->numConnections);
             }
+            Log::info("Remote node %u connected to segment %u on adapter %u (#connections: %zu)", 
+                    nodeId, info->id, adapter, numConnections);
             break;
 
         case SCI_CB_DISCONNECT:
-            Log::info("Remote node %u disconnected from segment %u", nodeId, info->id);
             {
                 std::lock_guard<std::mutex> lock(info->segmentLock);
-                info->connections[nodeId]--;
+                //info->connections[nodeId]--;
+                numConnections = --(info->numConnections);
             }
+            Log::info("Remote node %u disconnected from segment %u (#connections: %zu)", 
+                    nodeId, info->id, numConnections);
             break;
 
         default:
@@ -131,6 +138,7 @@ static shared_ptr<SegmentImpl> createSegmentImpl(uint id, size_t size)
     
     ptr->id = id;
     ptr->size = size;
+    ptr->numConnections = 0;
 
     // Open SISCI descriptor
     sci_error_t err;
@@ -295,14 +303,14 @@ sci_local_segment_t Segment::getSegment() const
 }
 
 
-void Segment::getConnections(std::vector<uint>& conns) const
-{
-    for (map<uint, uint>::const_iterator it = impl->connections.begin(); it != impl->connections.end(); ++it)
-    {
-        for (size_t i = 0; i < it->second; ++i)
-        {
-            conns.push_back(it->first);
-        }
-    }
-}
+//void Segment::getConnections(std::vector<uint>& conns) const
+//{
+//    for (map<uint, uint>::const_iterator it = impl->connections.begin(); it != impl->connections.end(); ++it)
+//    {
+//        for (size_t i = 0; i < it->second; ++i)
+//        {
+//            conns.push_back(it->first);
+//        }
+//    }
+//}
 

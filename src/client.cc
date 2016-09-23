@@ -116,7 +116,7 @@ static void writeTransferResults(FILE* reportFile, const TransferList& transfers
             destType,
             !!(transfer->flags & SCI_FLAG_DMA_READ) ? "yes" : "no",
             humanReadable(transferSize).c_str(),
-            transferStatus[i] == SCI_ERR_OK ? 0 : completionTimes[i],
+            transferStatus[i] != SCI_ERR_OK ? 0 : completionTimes[i],
             humanReadable(transferSize, completionTimes[i]).c_str(),
             transferStatus[i] != SCI_ERR_OK ? "FAIL" : "OK"
         );
