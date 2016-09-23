@@ -22,13 +22,14 @@ using std::pair;
 
 
 /* Convenience type for client callbacks */
-typedef std::function<void (uint, const void*, size_t)> Callback;
+typedef std::function<void (const void*, size_t)> Callback;
 
 
 /* RPC client data */
 struct RpcClientImpl
 {
     bool                                callInProgress; // caller blocks until this is false
+    uint                                remoteNodeId;   // expect response from this node
     std::mutex                          callLock;       // avoid race conditions
     Callback                            callback;       // current callback
     InterruptPtr                        interrupt;      // local interrupt
@@ -50,7 +51,7 @@ enum class Type : uint8_t
 {
     GetSegmentInfo                      = 0x01,         // get info about a remote segment
     GetDeviceInfo                       = 0x02,         // get info about a remote GPU
-    GetChecksum                         = 0x03,         // calculate checksum for a remote segment
+    CalculateChecksum                   = 0x03,         // calculate checksum for a remote segment
 };
 
 
@@ -63,10 +64,24 @@ struct Message
 };
 
 
-/* Default client callback */
-static void defaultCallback(uint nodeId, const void*, size_t)
+struct ChecksumRequest
 {
-    Log::warn("Got unexpected interrupt from node %u", nodeId);
+    size_t                              offset;         // offset into segment
+    size_t                              size;           // size
+};
+
+
+struct ChecksumResponse
+{
+    uint32_t                            checksum;
+    bool                                success;
+};
+
+
+/* Default client callback */
+static void defaultCallback(const void*, size_t)
+{
+    Log::warn("Got unexpected interrupt");
 }
 
 
@@ -160,6 +175,20 @@ static bool sendSegmentInfo(const SegmentPtr& segment, uint adapter, uint nodeId
 }
 
 
+/* Helper function to send checksum respones back to requester */
+static bool handleChecksumRequest(const RpcServerImpl* impl, const InterruptEvent& event, uint32_t interruptNo, ChecksumRequest* request)
+{
+    uint32_t checksum = 0;
+    bool status = impl->callback(*impl->segment, request->offset, request->size, checksum);
+
+    ChecksumResponse response;
+    response.checksum = checksum;
+    response.success = status;
+
+    return sendMessage(event.adapter, event.remoteNodeId, interruptNo, event.interruptNo, &response, sizeof(response));
+}
+
+
 /* Handle a RPC request from a client */
 static void handleRequest(const RpcServerImpl* impl, const InterruptEvent& event, const void* data, size_t length)
 {
@@ -181,7 +210,17 @@ static void handleRequest(const RpcServerImpl* impl, const InterruptEvent& event
             sendSegmentInfo(impl->segment, event.adapter, event.remoteNodeId, remoteInterrupt, impl->interrupt->no);
             break;
 
-        // TODO: checksum and device info
+        case Type::CalculateChecksum:
+            if (length != 1 + sizeof(ChecksumRequest))
+            {
+                Log::error("Expected checksum request but got unknown data");
+                break;
+            }
+
+            handleChecksumRequest(impl, event, remoteInterrupt, (ChecksumRequest*) (((uint8_t*) data) + sizeof(uint32_t) + 1));
+            break;
+
+        // TODO: Get device info
 
         default:
             Log::warn("Got unknown request type from node %u on adapter %u: 0x%02x", 
@@ -216,20 +255,73 @@ RpcClient::RpcClient(uint adapter, uint id)
     auto capture = impl.get(); // Beware!!
     auto handleInterrupt = [capture](const InterruptEvent& event, const void* data, size_t length)
     {
-        if (length >= sizeof(uint32_t))
+        if (event.remoteNodeId != capture->remoteNodeId)
         {
-            capture->callback(event.remoteNodeId, ((uint8_t*) data) + sizeof(uint32_t), length - sizeof(uint32_t));
+            Log::error("Expected response from node %u but got response from %u",
+                    capture->remoteNodeId, event.remoteNodeId);
+        }
+        else if (length < sizeof(uint32_t))
+        {
+            Log::error("Got garbled response from node %u",
+                    event.remoteNodeId);
+        }
+        else
+        {
+            capture->callback(((uint8_t*) data) + sizeof(uint32_t), length - sizeof(uint32_t));
         }
 
+        capture->remoteNodeId = 0;
         capture->callInProgress = false;
         capture->callback = defaultCallback;
     };
 
+    impl->remoteNodeId = 0;
     impl->callInProgress = nullptr;
     impl->callback = defaultCallback;
     impl->interrupt.reset(new Interrupt(adapter, id, handleInterrupt));
 
     Log::debug("Information service client %u running on adapter %u", id, adapter);
+}
+
+
+bool RpcClient::calculateChecksum(uint nodeId, uint segmentId, size_t offset, size_t size, uint32_t& checksum)
+{
+    Log::debug("Querying node %u about checksum for segment %u...", nodeId, segmentId);
+
+
+    bool success = false;
+    unsigned char request[sizeof(Type) + sizeof(ChecksumRequest)];
+    *((Type*) request) = Type::CalculateChecksum;
+    ChecksumRequest* ptr = (ChecksumRequest*) (request + sizeof(Type));
+    ptr->offset = offset;
+    ptr->size = size;
+
+    std::unique_lock<std::mutex> lock(impl->callLock);
+    impl->callInProgress = true;
+    impl->remoteNodeId = nodeId;
+
+    impl->callback = [this, nodeId, segmentId, &success, &checksum](const void* data, size_t length)
+    {
+        if (length < sizeof(ChecksumResponse))
+        {
+            Log::error("Expected checksum response but got something else from node %u", nodeId);
+            return;
+        }
+
+        ChecksumResponse* response = (ChecksumResponse*) data;
+        checksum = response->checksum;
+        success = response->success;
+    };
+
+    while (impl->callInProgress);
+    lock.release();
+
+    if (!success)
+    {
+        Log::warn("Querying remote node %u about checksum for segment %u failed", nodeId, segmentId);
+    }
+
+    return success;
 }
 
 
@@ -245,7 +337,6 @@ bool RpcClient::getRemoteSegmentInfo(uint nodeId, uint segmentId, SegmentInfo& i
         return true;
     }
 
-
     Log::debug("Querying node %u about segment %u...", nodeId, segmentId);
     std::unique_lock<std::mutex> lock(impl->callLock);
 
@@ -254,15 +345,9 @@ bool RpcClient::getRemoteSegmentInfo(uint nodeId, uint segmentId, SegmentInfo& i
     Type request = Type::GetSegmentInfo;
 
     impl->callInProgress = true;
-    impl->callback = [this, nodeId, segmentId, &success, &info](uint origNodeId, const void* data, size_t length)
+    impl->remoteNodeId = nodeId;
+    impl->callback = [this, nodeId, segmentId, &success, &info](const void* data, size_t length)
     {
-        if (nodeId != origNodeId)
-        {
-            Log::error("Expected response from node %u but got interrupt from node %u",
-                    nodeId, origNodeId);
-            return;
-        }
-
         if (length < sizeof(SegmentInfo))
         {
             Log::error("Expected information response but got something else from node %u", nodeId);
@@ -273,7 +358,7 @@ bool RpcClient::getRemoteSegmentInfo(uint nodeId, uint segmentId, SegmentInfo& i
         if (info.id != segmentId)
         {
             Log::error("Expected information response about segment %u from node %u but got for segment %u",
-                    segmentId, origNodeId, info.id);
+                    segmentId, nodeId, info.id);
         }
 
         success = true;

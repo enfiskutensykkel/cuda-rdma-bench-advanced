@@ -125,6 +125,7 @@ static void writeTransferResults(FILE* reportFile, const TransferList& transfers
 }
 
 
+/* Execute DMA transfer */
 static void transferDma(Barrier barrier, TransferPtr transfer, uint64_t* time, sci_error_t* err)
 {
     // Prepare DMA transfer vector
@@ -196,12 +197,16 @@ int validateTransfers(const TransferList& transfers, ChecksumCallback calculateC
 
         // Get checksum of remote segment
         
+        // Map remote segment
+        
         // Calculate checksum of local segment
 
         // Execute transfer
         transferDma(fakeBarrier, transfers[idx], &times[idx], &status[idx]);
 
-        // Get checksum of remote segment again
+        // Get checksum of remote segment
+        
+        // Map remote segment
         
         // Calculate checksum of local segment
         

@@ -224,8 +224,12 @@ int main(int argc, char** argv)
     }
 
     // Create checksum callback
-    ChecksumCallback calc = [&buffers, &segments](const Segment& segment, size_t offset, size_t size, uint32_t& checksum) -> bool
+    ChecksumCallback calc = [&buffers, &devices](const Segment& segment, size_t offset, size_t size, uint32_t& checksum) -> bool
     {
+        Log::info("Calculating checksum for segment %u", segment.id);
+
+
+
         return false;
     };
 

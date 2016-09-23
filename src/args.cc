@@ -214,11 +214,10 @@ static void parseTransferVectorEntryString(const vector<string>& entryStrings, D
         entry.flags = 0;
 
         size_t n = parseNumber(nullstr, match["repeat"].str());
-        if (n >= DIS_DMA_MAX_VECLEN)
+        if (n < 1 || n >= DIS_DMA_MAX_VECLEN)
         {
-            throw "DMA vector length can't exceed " + to_string(DIS_DMA_MAX_VECLEN) + " elements";
+            throw "DMA vector length must be between 1 and " + to_string(DIS_DMA_MAX_VECLEN) + " elements";
         }
-
 
         for (size_t i = 0; i < n; ++i)
         {
