@@ -29,12 +29,14 @@ class RpcServer
 };
 
 
+// TODO: use all flags instead
 struct SegmentInfo
 {
     uint    id;
     size_t  size;
     bool    isGlobal;
     bool    isDeviceMem;
+    uint    flags;
 };
 
 

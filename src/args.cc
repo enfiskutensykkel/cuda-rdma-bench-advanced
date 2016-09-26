@@ -31,7 +31,8 @@ static struct option options[] =
     { .name = "segment", .has_arg = true, .flag = nullptr, .val = 's' },
     { .name = "transfer", .has_arg = true, .flag = nullptr, .val = 't' },
     { .name = "verbosity", .has_arg = true, .flag = nullptr, .val = 'v' },
-    { .name = "check", .has_arg = false, .flag = nullptr, .val = 'c' },
+    { .name = "checksum", .has_arg = false, .flag = nullptr, .val = 'c' },
+    { .name = "map-segment", .has_arg = false, .flag = nullptr, .val = 'm' },
     { .name = "list", .has_arg = false, .flag = nullptr, .val = 'l' },
     { .name = "help", .has_arg = false, .flag = nullptr, .val = 'h' },
     { .name = nullptr, .has_arg = false, .flag = nullptr, .val = 0 }
@@ -76,7 +77,8 @@ static void giveUsage(const char* programName)
             "    <size>                         transfer size\n"
             "    <repeat>                       number of times to repeat vector entry\n"
             "\nOther options\n"
-            "  --check                          for each remote segment, verify that data changes\n"
+            "  --checksum                       calculate checksum of remote and local segment (can't be used with --map-segment)\n"
+            "  --map-segment                    map remote segment and compare with local segment (can't be used with --checksum)\n"
             "  --verbosity      <level>         specify \"error\", \"warn\", \"info\" or \"debug\" log level\n"
             "  --log            <filename>      use a log file instead of stderr for logging\n"
             "  --report         <filename>      use a report file instead of stdout\n"
@@ -350,10 +352,12 @@ static Log::Level parseVerbosity(const char* argument, uint level)
 
 
 /* Parse command line options */
-void parseArguments(int argc, char** argv, SegmentSpecMap& segments, DmaJobList& transfers, Log::Level& logLevel, bool& validate)
+void parseArguments(int argc, char** argv, SegmentSpecMap& segments, DmaJobList& transfers, Log::Level& logLevel, ValidateMethod& validate)
 {
     int option;
     int index;
+
+    validate = ValidateMethod::NoValidation;
 
     // Parse arguments
     while ((option = getopt_long(argc, argv, "-:s:t:vlh", options, &index)) != -1)
@@ -390,8 +394,12 @@ void parseArguments(int argc, char** argv, SegmentSpecMap& segments, DmaJobList&
                 parseTransferString(optarg, transfers);
                 break;
 
-            case 'c': // Verify all remote segments
-                validate = true;
+            case 'c': // Verify transfers
+                validate = ValidateMethod::RemoteChecksum;
+                break;
+
+            case 'm': // Verify transfers
+                validate = ValidateMethod::MapSegment;
                 break;
         }
     }

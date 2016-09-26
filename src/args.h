@@ -10,6 +10,13 @@
 #define NO_DEVICE   -1
 
 
+/* Should we validate the transfer? */
+enum class ValidateMethod
+{
+    NoValidation, RemoteChecksum, MapSegment
+};
+
+
 /* Describe a local segment and how to create it */
 struct SegmentSpec
 {
@@ -50,7 +57,7 @@ typedef std::vector<DmaJobPtr> DmaJobList;
 
 
 /* Parse command line options and load settings */
-void parseArguments(int argc, char** argv, SegmentSpecMap& segments, DmaJobList& transfers, Log::Level& logLevel, bool& verify);
+void parseArguments(int argc, char** argv, SegmentSpecMap& segments, DmaJobList& transfers, Log::Level& logLevel, ValidateMethod& verify);
 
 
 #endif

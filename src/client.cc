@@ -125,6 +125,12 @@ static void writeTransferResults(FILE* reportFile, const TransferList& transfers
 }
 
 
+/* Compare a part of a local segment to a part of a remote segment */
+void compareChunk(sci_local_segment_t localSegment, sci_remote_segment_t remoteSegment, const dis_dma_vec_t& vectorEntry)
+{
+}
+
+
 /* Execute DMA transfer */
 static void transferDma(Barrier barrier, TransferPtr transfer, uint64_t* time, sci_error_t* err)
 {
@@ -169,7 +175,7 @@ static void transferDma(Barrier barrier, TransferPtr transfer, uint64_t* time, s
 }
 
 
-int validateTransfers(const TransferList& transfers, ChecksumCallback calculateCheksum, FILE* reportFile)
+int validateTransfers(const TransferList& transfers, ChecksumCallback* calculateChecksum, FILE* reportFile)
 {
     // Create info service clients
     ServiceClientMap serviceClients;
@@ -195,22 +201,36 @@ int validateTransfers(const TransferList& transfers, ChecksumCallback calculateC
         times[idx] = std::numeric_limits<uint64_t>::max();
         status[idx] = SCI_ERR_OK;
 
-        // Get checksum of remote segment
-        
-        // Map remote segment
-        
-        // Calculate checksum of local segment
+        const TransferPtr& transfer = transfers[idx];
+
+        // Check each transferred chunk
+        ServiceClientMap::iterator client = serviceClients.find(make_pair(transfer->adapter, transfer->localSegmentId));
+        if (client != serviceClients.end())
+        {
+            SegmentInfo info;
+            if (!client->second.getRemoteSegmentInfo(transfer->remoteNodeId, transfer->remoteSegmentId, info))
+            {
+                Log::error("Failed to get remote segment information for node %u segment %u",
+                        transfer->remoteNodeId, transfer->remoteSegmentId);
+            }
+
+            if (info.isGlobal)
+            {
+                Log::warn("Remote segment is created with SCI_FLAG_DMA_GLOBAL");
+            }
+        }
+
+        // TODO: calculate remote and local checksum
 
         // Execute transfer
-        transferDma(fakeBarrier, transfers[idx], &times[idx], &status[idx]);
+        transferDma(fakeBarrier, transfer, &times[idx], &status[idx]);
 
-        // Get checksum of remote segment
-        
-        // Map remote segment
-        
-        // Calculate checksum of local segment
-        
-        
+        for (const dis_dma_vec_t& ventry : transfer->getDmaVector())
+        {
+            compareChunk(transfer->getLocalSegment(), transfer->getRemoteSegment(), ventry);
+        }
+
+        // TODO: calculate remote and local checksum
     }
     Log::info("Done validating transfers");
 

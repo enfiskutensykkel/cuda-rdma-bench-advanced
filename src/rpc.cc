@@ -22,6 +22,10 @@ using std::make_pair;
 using std::pair;
 
 
+typedef map<pair<uint, uint>, sci_desc_t> DescriptorCache;
+typedef map<pair<uint, uint>, sci_remote_data_interrupt_t> InterruptCache;
+
+
 /* Convenience type for client callbacks */
 typedef std::function<void (const void*, size_t)> Callback;
 
@@ -36,6 +40,8 @@ struct RpcClientImpl
     Callback                            callback;       // current callback
     InterruptPtr                        interrupt;      // local interrupt
     map<pair<uint, uint>, SegmentInfo>  infoCache;      // reduce number of times going to server
+    DescriptorCache                     descCache;      // TODO
+    InterruptCache                      intrCache;      // TODO
 };
 
 
@@ -45,6 +51,8 @@ struct RpcServerImpl
     SegmentPtr                          segment;        // local segment
     InterruptPtr                        interrupt;      // local interrupt
     ChecksumCallback                    callback;       // checksum calculation callback
+    DescriptorCache                     descCache;      // TODO
+    InterruptCache                      intrCache;      // TODO
 };
 
 
@@ -90,6 +98,9 @@ static void defaultCallback(const void*, size_t)
 /* Helper function to send a message */
 static bool sendMessage(uint adapter, uint nodeId, uint remoteIntrNo, uint localIntrNo, const void* data, uint8_t length)
 {
+    // TODO change signature to accept local interrupt instead of adapter+local intr no
+    // TODO use descriptor and interrupt cache
+
     sci_error_t status, err;
     sci_desc_t desc = nullptr;
     sci_remote_data_interrupt_t interrupt = nullptr;

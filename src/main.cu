@@ -157,7 +157,7 @@ int main(int argc, char** argv)
 {
     SegmentSpecMap segmentSpecs;
     DmaJobList transferSpecs;
-    bool verify = false;
+    ValidateMethod verify;
 
     // Parse command line arguments
     try
@@ -235,17 +235,16 @@ int main(int argc, char** argv)
 
     if (transfers.empty())
     {
-
         // No transfers specified, run as server
         if (runBenchmarkServer(segments, calc) != 0)
         {
             fprintf(stderr, "Server failed!\n");
         }
     }
-    else if (verify)
+    else if (verify != ValidateMethod::NoValidation)
     {
         // Validate transfers
-        if (validateTransfers(transfers, calc, stdout) != 0)
+        if (validateTransfers(transfers, verify == ValidateMethod::RemoteChecksum ? &calc : nullptr, stdout) != 0)
         {
             fprintf(stderr, "Validation failed!\n");
         }
