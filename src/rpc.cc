@@ -1,5 +1,6 @@
 #include <functional>
 #include <mutex>
+#include <condition_variable>
 #include <memory>
 #include <map>
 #include <stdexcept>
@@ -28,9 +29,10 @@ typedef std::function<void (const void*, size_t)> Callback;
 /* RPC client data */
 struct RpcClientImpl
 {
-    bool                                callInProgress; // caller blocks until this is false
     uint                                remoteNodeId;   // expect response from this node
     std::mutex                          callLock;       // avoid race conditions
+    std::condition_variable             callInProgress; // caller blocks until this is false
+    std::function<bool()>               callPred;       // condition variable predicate
     Callback                            callback;       // current callback
     InterruptPtr                        interrupt;      // local interrupt
     map<pair<uint, uint>, SegmentInfo>  infoCache;      // reduce number of times going to server
@@ -255,6 +257,8 @@ RpcClient::RpcClient(uint adapter, uint id)
     auto capture = impl.get(); // Beware!!
     auto handleInterrupt = [capture](const InterruptEvent& event, const void* data, size_t length)
     {
+        std::lock_guard<std::mutex> lock(capture->callLock);
+
         if (event.remoteNodeId != capture->remoteNodeId)
         {
             Log::error("Expected response from node %u but got response from %u",
@@ -271,12 +275,16 @@ RpcClient::RpcClient(uint adapter, uint id)
         }
 
         capture->remoteNodeId = 0;
-        capture->callInProgress = false;
         capture->callback = defaultCallback;
+        capture->callInProgress.notify_one();
+    };
+
+    impl->callPred = [capture]()
+    {
+        return capture->remoteNodeId == 0;
     };
 
     impl->remoteNodeId = 0;
-    impl->callInProgress = nullptr;
     impl->callback = defaultCallback;
     impl->interrupt.reset(new Interrupt(adapter, id, handleInterrupt));
 
@@ -288,7 +296,6 @@ bool RpcClient::calculateChecksum(uint nodeId, uint segmentId, size_t offset, si
 {
     Log::debug("Querying node %u about checksum for segment %u...", nodeId, segmentId);
 
-
     bool success = false;
     unsigned char request[sizeof(Type) + sizeof(ChecksumRequest)];
     *((Type*) request) = Type::CalculateChecksum;
@@ -297,7 +304,6 @@ bool RpcClient::calculateChecksum(uint nodeId, uint segmentId, size_t offset, si
     ptr->size = size;
 
     std::unique_lock<std::mutex> lock(impl->callLock);
-    impl->callInProgress = true;
     impl->remoteNodeId = nodeId;
 
     impl->callback = [this, nodeId, segmentId, &success, &checksum](const void* data, size_t length)
@@ -313,7 +319,15 @@ bool RpcClient::calculateChecksum(uint nodeId, uint segmentId, size_t offset, si
         success = response->success;
     };
 
-    while (impl->callInProgress);
+    if (!sendMessage(impl->interrupt->adapter, nodeId, segmentId, impl->interrupt->no, &request, sizeof(request)))
+    {
+        impl->remoteNodeId = 0;
+        impl->callback = defaultCallback;
+        throw runtime_error("Failed to send information service request");
+    }
+
+
+    impl->callInProgress.wait(lock, impl->callPred);
     lock.release();
 
     if (!success)
@@ -344,7 +358,6 @@ bool RpcClient::getRemoteSegmentInfo(uint nodeId, uint segmentId, SegmentInfo& i
     bool success = false;
     Type request = Type::GetSegmentInfo;
 
-    impl->callInProgress = true;
     impl->remoteNodeId = nodeId;
     impl->callback = [this, nodeId, segmentId, &success, &info](const void* data, size_t length)
     {
@@ -367,13 +380,13 @@ bool RpcClient::getRemoteSegmentInfo(uint nodeId, uint segmentId, SegmentInfo& i
     // Send request
     if (!sendMessage(impl->interrupt->adapter, nodeId, segmentId, impl->interrupt->no, &request, sizeof(request)))
     {
+        impl->remoteNodeId = 0;
         impl->callback = defaultCallback;
-        impl->callInProgress = false;
         throw runtime_error("Failed to send information service request");
     }
 
     // Wait for response
-    while (impl->callInProgress);
+    impl->callInProgress.wait(lock, impl->callPred);
     lock.release();
 
     if (!success)
