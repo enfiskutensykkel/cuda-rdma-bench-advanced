@@ -49,7 +49,6 @@ static void giveUsage(const char* programName)
             "    Benchmark the performance of GPU to GPU RDMA transfer.\n"
             "\nServer arguments\n"
             "  --segment    <segment string>    create a local segment\n"
-            "  --export     [export string]     expose a local segment\n"
             "\nClient arguments\n"
             "  --segment    <segment string>    create a local segment\n"
             "  --transfer   <transfer string>   DMA transfer specification\n"
